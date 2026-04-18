@@ -1,0 +1,35 @@
+# OS / editor
+.DS_Store
+.env
+
+# Python build / caches
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+build/
+dist/
+
+# Virtual environments
+.venv/
+
+# Test / coverage / linters
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+.tox/
+
+# Project-local databases
+*.db
+
+# Package-local scratch / planning / draft / review traces
+.local/
+tmp/
+PLAN.md
+
+# uv is prohibited; ignore lockfiles if created by tooling
+uv.lock
