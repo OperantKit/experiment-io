@@ -33,3 +33,4 @@ PLAN.md
 
 # uv is prohibited; ignore lockfiles if created by tooling
 uv.lock
+.venv-fresh/
