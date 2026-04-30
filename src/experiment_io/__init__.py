@@ -15,4 +15,6 @@ try:
 except PackageNotFoundError:  # pragma: no cover - fallback when not installed
     __version__ = "0.0.0+unknown"
 
-__all__ = ["__version__"]
+from .driver import SessionDriverLike, drive
+
+__all__ = ["SessionDriverLike", "__version__", "drive"]

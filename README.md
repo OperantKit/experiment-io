@@ -1,5 +1,7 @@
 # experiment-io
 
+:jp: [日本語版 README](README.ja.md)
+
 Hardware abstraction layer (HAL) for the OperantKit experiment runtime.
 
 `experiment-io` defines the protocol contracts and concrete backends that let
@@ -16,6 +18,7 @@ not require the Rust binary to exist.
 ## Public API
 
 ```python
+from experiment_io import drive, SessionDriverLike
 from experiment_io.hw import Clock, Operandum, Reinforcer, ResponseSample
 from experiment_io.hw.backends.virtual import (
     ManualClock,
@@ -31,6 +34,39 @@ from experiment_io.hw.backends.serial import (
     open_serial,
 )
 from experiment_io.hw.backends.hil_bridge import HilBridge
+```
+
+### Driving a session from hardware
+
+`experiment_io.drive(driver, operanda, reinforcers, clock, ...)`
+loops over HAL devices and feeds responses into anything satisfying
+the `SessionDriverLike` Protocol (typically a
+`session_runner.SessionRunner`). The driver type is structurally
+typed so this package does not import `session-runner`.
+
+```python
+from contingency import ScheduleBuilder
+from experiment_core import ReinforcementCountExit
+from experiment_io import drive
+from experiment_io.hw.backends.virtual import (
+    ManualClock, RecordingReinforcer, VirtualOperandum, VirtualSubject,
+)
+from session_runner import SessionConfig, SessionRunner
+
+clock = ManualClock()
+op = VirtualOperandum(0, VirtualSubject(rate_hz=5.0, seed=0), clock)
+rein = RecordingReinforcer(operandum_index=0)
+
+runner = SessionRunner(
+    SessionConfig(
+        name="demo",
+        schedule=ScheduleBuilder.fr(1),
+        exit_condition=ReinforcementCountExit(count=3),
+    ),
+    clock=clock,
+)
+runner.start(start_time=clock())
+drive(runner, [op], [rein], clock, reinforcer_duration=0.2)
 ```
 
 ## Installation

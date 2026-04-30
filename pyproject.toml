@@ -62,6 +62,8 @@ markers = [
   "slow: marks tests as slow (deselect with '-m \"not slow\"')",
   "hw_serial: requires pyserial and actual hardware (skipped by default)",
   "hw_hil: requires HIL bridge endpoint (skipped by default)",
+  "unit: unit-level tests",
+  "integration: integration-level tests spanning modules",
 ]
 
 [tool.coverage.run]
