@@ -91,24 +91,64 @@ mise exec -- python -m venv .venv
 .venv/bin/python -m pip install -e ".[hw-serial]"
 ```
 
+## 30 秒で動く例
+
+2 つの仮想オペランダムと、オペランダムごとの給餌器で並立スケジュールを駆動し、強化子が 10 回提示されるまで動かす:
+
+```python
+from contingency_dsl import parse
+from contingency import from_dsl
+from experiment_core import ReinforcementCountExit
+from experiment_io import drive
+from experiment_io.hw.backends.virtual import (
+    ManualClock, MultiVirtualOperandum, MultiVirtualSubject, RecordingReinforcer,
+)
+from session_runner import SessionConfig, SessionRunner
+
+clock = ManualClock()
+subject = MultiVirtualSubject(rates_hz=[2.0, 0.5], seeds=[1, 2])  # seed 固定のポアソン反応体
+operanda = MultiVirtualOperandum(subject, clock).split()
+feeders = [RecordingReinforcer(operandum_index=i) for i in range(2)]
+
+runner = SessionRunner(
+    SessionConfig(
+        name="conc-fr",
+        schedule=from_dsl(parse("Conc(FR 5, FR 5)")),
+        exit_condition=ReinforcementCountExit(count=10),
+    ),
+    clock=clock,
+)
+runner.start(start_time=clock())
+drive(runner, operanda, feeders, clock, reinforcer_duration=3.0)
+
+print(runner.state_name, runner.component_responses, [len(f.calls) for f in feeders], round(clock(), 1))
+# FINISHED [45, 6] [9, 1] 49.8
+```
+
+速く反応する側（毎秒 2 反応）が 10 回のうち 9 回の強化子を生み、各強化子は比率を満たしたオペランダムと対になる給餌器から提示された。時計には 1 回あたり 3 秒の強化子提示が含まれる。`MultiVirtualOperandum` と `RecordingReinforcer` を `SerialOperandum` と `SerialReinforcer` に置き換えると、同じセッションをマイコンで動かせる。この例は [session-runner](https://github.com/OperantKit/session-runner)（`pip install session-runner`。experiment-core・contingency-py・contingency-dsl-py も入る）を使う。
+
+## 自作の 50 行のハードウェアループでは足りない理由
+
+1 つの装置向けに書いたポーリングループは、時間・振り分け・装置のコードが混ざる。本パッケージはそれらを分ける:
+
+- **どのバックエンドにも同じループ.** `drive` は `Operandum` / `Reinforcer` プロトコルを満たす任意のオブジェクト（仮想被験体・シリアル装置・contingency-rs の HIL ブリッジ）で動く。
+- **強化子を正しいオペランダムへ.** 並立スケジュールでは各反応を `handle_response_on(index, ...)` に渡し、強化子はそれを生んだオペランダムと対の装置から提示する。
+- **決定的なシミュレーション.** `ManualClock` を使うとループは待たずに仮想時間を進め、仮想被験体は seed で固定されるので、セッション全体が数ミリ秒で走り、毎回同じ結果になる。複数オペランダムの仮想被験体は強化子提示中に反応しない。
+- **時間に基づくスケジュールも進む.** 反応が来ないときは時計を進めて `handle_tick` を呼ぶので、FI・VI・FT・VT・DRO と時間制限が評価される。`max_duration` と `max_steps` でループの上限を決められる。
+- **文書化されたワイヤ形式.** シリアル装置と HIL ブリッジは改行区切り JSON を話す（入力 `{"op": 0, "ts": 1.25, "kind": "response"}`、出力 `{"cmd": "reinforcer", "op": 0, "duration": 3.0}`）。`pyserial` は任意で、必要になった時点で import する。
+
 ## テスト
 
 ```bash
 .venv/bin/python -m pytest -q
 ```
 
-## ローカル依存関係に関する注記
+## 依存関係
 
-`experiment-io` は論理的には `contingency-py` の葉コンシューマであり、
-`experiment-core` によって消費される。両パッケージは本 monorepo に存在
-するがまだ PyPI に公開されていないため、ここでは意図的に
-`[project.dependencies]` に **列挙していない**。本パッケージをより大きな
-アプリケーションに組み込む際は、姉妹パッケージをローカル・パスから
-インストールする:
-
-```bash
-.venv/bin/python -m pip install -e ../../core/contingency-py
-```
+`experiment-io` は他の OperantKit パッケージに実行時依存を持たない。
+`drive` は `SessionDriverLike` の形を持つ任意のオブジェクトを受け取るので、
+セッション自体は `session-runner`（`pip install session-runner`）から
+用意する。上の例もそうしている。
 
 ## HIL ブリッジ・バイナリ
 
@@ -116,6 +156,7 @@ mise exec -- python -m venv .venv
 バイナリが別の場所にあるデプロイでは、パスを明示的に渡す:
 
 ```python
+# requires the operantkit-hil binary
 from experiment_io.hw.backends.hil_bridge import HilBridge
 
 bridge = HilBridge(binary="/path/to/operantkit-hil")

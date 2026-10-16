@@ -89,23 +89,64 @@ For the optional serial backend on real hardware:
 .venv/bin/python -m pip install -e ".[hw-serial]"
 ```
 
+## 30-second example
+
+Drive a concurrent schedule from two virtual operanda, with a feeder per operandum, until ten reinforcers have been delivered:
+
+```python
+from contingency_dsl import parse
+from contingency import from_dsl
+from experiment_core import ReinforcementCountExit
+from experiment_io import drive
+from experiment_io.hw.backends.virtual import (
+    ManualClock, MultiVirtualOperandum, MultiVirtualSubject, RecordingReinforcer,
+)
+from session_runner import SessionConfig, SessionRunner
+
+clock = ManualClock()
+subject = MultiVirtualSubject(rates_hz=[2.0, 0.5], seeds=[1, 2])  # seeded Poisson responders
+operanda = MultiVirtualOperandum(subject, clock).split()
+feeders = [RecordingReinforcer(operandum_index=i) for i in range(2)]
+
+runner = SessionRunner(
+    SessionConfig(
+        name="conc-fr",
+        schedule=from_dsl(parse("Conc(FR 5, FR 5)")),
+        exit_condition=ReinforcementCountExit(count=10),
+    ),
+    clock=clock,
+)
+runner.start(start_time=clock())
+drive(runner, operanda, feeders, clock, reinforcer_duration=3.0)
+
+print(runner.state_name, runner.component_responses, [len(f.calls) for f in feeders], round(clock(), 1))
+# FINISHED [45, 6] [9, 1] 49.8
+```
+
+The faster responder (2 responses/s) produced 9 of the 10 reinforcers, each delivered by the feeder paired with the operandum that completed the ratio; the clock includes 3 s of reinforcer access per delivery. Replacing `MultiVirtualOperandum` and `RecordingReinforcer` with `SerialOperandum` and `SerialReinforcer` runs the same session on a microcontroller. The example uses [session-runner](https://github.com/OperantKit/session-runner) (`pip install session-runner`, which installs experiment-core, contingency-py, and contingency-dsl-py).
+
+## Why not a 50-line hand-written hardware loop?
+
+A polling loop written for one device mixes timing, routing, and device code. This package separates them:
+
+- **One loop for every backend.** `drive` works with any object satisfying the `Operandum` / `Reinforcer` protocols: virtual subjects, a serial device, or the contingency-rs HIL bridge.
+- **Reinforcer routed to the right operandum.** On a concurrent schedule each response goes to `handle_response_on(index, ...)`, and the reinforcer is delivered by the device paired with the operandum that produced it.
+- **Deterministic simulation.** With `ManualClock` the loop advances virtual time instead of sleeping, and virtual subjects are seeded, so a whole session runs in milliseconds and repeats exactly. Multi-operandum virtual subjects do not respond during reinforcer access.
+- **Time-based schedules keep running.** When no response arrives the loop advances the clock and calls `handle_tick`, so FI, VI, FT, VT, DRO and time limits are evaluated; `max_duration` and `max_steps` bound the loop.
+- **Documented wire formats.** Serial devices and the HIL bridge speak newline-delimited JSON (`{"op": 0, "ts": 1.25, "kind": "response"}` in, `{"cmd": "reinforcer", "op": 0, "duration": 3.0}` out); `pyserial` is optional and imported lazily.
+
 ## Tests
 
 ```bash
 .venv/bin/python -m pytest -q
 ```
 
-## Local dependency notes
+## Dependencies
 
-`experiment-io` is logically a leaf consumer of `contingency-py` and is in
-turn consumed by `experiment-core`. Both of those packages live in this
-monorepo and are not yet published to PyPI, so they are intentionally **not**
-listed in `[project.dependencies]` here. When wiring this package into a
-larger application, install the sibling packages from their local paths:
-
-```bash
-.venv/bin/python -m pip install -e ../../core/contingency-py
-```
+`experiment-io` has no runtime dependency on other OperantKit packages.
+`drive` accepts any object with the `SessionDriverLike` surface, so the
+session itself comes from `session-runner` (`pip install session-runner`),
+which is what the examples above use.
 
 ## HIL bridge binary
 
@@ -113,6 +154,7 @@ larger application, install the sibling packages from their local paths:
 deployments where the binary lives elsewhere, pass the path explicitly:
 
 ```python
+# requires the operantkit-hil binary
 from experiment_io.hw.backends.hil_bridge import HilBridge
 
 bridge = HilBridge(binary="/path/to/operantkit-hil")

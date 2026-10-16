@@ -1,0 +1,47 @@
+# experiment-io
+
+> Hardware abstraction for operant sessions: one loop (`drive`) that polls operanda and operates reinforcer devices for seeded virtual subjects, Arduino-style serial devices (newline-delimited JSON), and the contingency-rs hardware-in-the-loop bridge.
+
+experiment-io is part of OperantKit, a set of Python/Rust packages for designing and running operant and respondent conditioning experiments (reinforcement schedules, session recording, analysis). Use it instead of hand-writing a device polling loop: responses on a concurrent schedule are routed to their operandum, the reinforcer is delivered by the device paired with that operandum, and the same session runs on virtual subjects with a manual clock for deterministic tests.
+
+## Install
+
+```bash
+pip install experiment-io
+pip install 'experiment-io[hw-serial]'   # optional pyserial for real serial ports
+```
+
+## Minimal example
+
+```python
+from contingency import ScheduleBuilder
+from experiment_core import ReinforcementCountExit
+from experiment_io import drive
+from experiment_io.hw.backends.virtual import ManualClock, RecordingReinforcer, VirtualOperandum, VirtualSubject
+from session_runner import SessionConfig, SessionRunner
+
+clock = ManualClock()
+runner = SessionRunner(
+    SessionConfig(name="demo", schedule=ScheduleBuilder.fr(3), exit_condition=ReinforcementCountExit(count=3)),
+    clock=clock,
+)
+feeder = RecordingReinforcer(operandum_index=0)
+runner.start(start_time=clock())
+drive(runner, [VirtualOperandum(0, VirtualSubject(rate_hz=5.0, seed=0), clock)], [feeder], clock)
+print(runner.state_name, runner.total_responses, len(feeder.calls))  # FINISHED 9 3
+```
+
+The example needs session-runner (`pip install session-runner`); experiment-io itself has no runtime dependency on other OperantKit packages.
+
+## Docs
+
+- [README](https://github.com/OperantKit/experiment-io/blob/main/README.md): backends, 30-second example, why not to hand-roll a hardware loop, wire formats
+- [AGENTS.md](https://github.com/OperantKit/experiment-io/blob/main/AGENTS.md): when to use this package and what not to do
+
+## Related packages
+
+- [session-runner](https://github.com/OperantKit/session-runner): the session driver that `drive` feeds (`pip install session-runner`)
+- [experiment-core](https://github.com/OperantKit/experiment-core): session state machine and event types (`pip install experiment-core`)
+- [contingency-py](https://github.com/OperantKit/contingency-py): reinforcement schedule engine (`pip install contingency-py`)
+- [contingency-rs](https://github.com/OperantKit/contingency-rs): Rust port of the engine; its HIL binary is the other side of `HilBridge`
+- [session-recorder](https://github.com/OperantKit/session-recorder): writes the session events to OKL v1 files (`pip install session-recorder`)
