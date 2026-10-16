@@ -74,6 +74,13 @@ drive(runner, [op], [rein], clock, reinforcer_duration=0.2)
 ## インストール
 
 ```bash
+pip install experiment-io
+pip install 'experiment-io[hw-serial]'   # optional シリアル・バックエンド
+```
+
+開発用:
+
+```bash
 mise exec -- python -m venv .venv
 .venv/bin/python -m pip install -e ".[dev]"
 ```
