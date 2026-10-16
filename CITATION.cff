@@ -1,0 +1,9 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it using the metadata from this file."
+type: software
+title: "experiment-io"
+authors:
+  - name: "OperantKit contributors"
+repository-code: "https://github.com/OperantKit/experiment-io"
+license: MIT
+abstract: "Hardware abstraction layer for OperantKit experiment runtime."
