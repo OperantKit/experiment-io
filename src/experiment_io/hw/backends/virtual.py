@@ -1,10 +1,11 @@
 """Virtual (in-memory) HAL backend.
 
-Wraps a Poisson ``VirtualSubject`` and a deterministic ``ManualClock``
-so that the same hardware-driven runner code path can be exercised in
-unit tests with no real I/O. This is the canonical home for the
-``ManualClock`` / ``VirtualSubject`` / ``MultiVirtualSubject``
-primitives used by experiment harnesses.
+Wraps a virtual subject (the Poisson ``VirtualSubject`` or the
+reinforcement-sensitive ``ScallopSubject``) and a deterministic
+``ManualClock`` so that the same hardware-driven runner code path can be
+exercised with no real I/O. This is the canonical home for the
+``ManualClock`` / ``VirtualSubject`` / ``ScallopSubject`` /
+``MultiVirtualSubject`` primitives used by experiment harnesses.
 """
 
 from __future__ import annotations
@@ -12,6 +13,7 @@ from __future__ import annotations
 import math
 import random
 from dataclasses import dataclass, field
+from typing import Protocol
 
 from ..protocols import ResponseSample
 
@@ -64,6 +66,63 @@ class VirtualSubject:
         return -math.log(1.0 - u) / self.rate_hz
 
 
+@dataclass
+class ScallopSubject:
+    """Responder whose rate grows with time since the last reinforcer.
+
+    The hazard of responding at time ``t`` since the last reinforcer is
+    ``max_rate_hz * min(1, (t / ramp_s) ** 2)``: zero right after a
+    reinforcer, rising quadratically, and constant at ``max_rate_hz``
+    once ``t >= ramp_s``. Under a fixed-interval schedule this yields the
+    post-reinforcement pause followed by accelerated responding (the FI
+    scallop). IRTs are drawn by thinning a ``max_rate_hz`` Poisson
+    process with a seeded RNG.
+
+    ``freeze_for_reinforcer`` is the reinforcer notification: it resets
+    the time since reinforcement to zero.
+    """
+
+    max_rate_hz: float = 2.0
+    ramp_s: float = 60.0
+    seed: int = 0
+    _rng: random.Random = field(init=False)
+    _elapsed: float = field(init=False, default=0.0)
+
+    def __post_init__(self) -> None:
+        if self.max_rate_hz <= 0:
+            raise ValueError(f"max_rate_hz must be > 0, got {self.max_rate_hz}")
+        if self.ramp_s <= 0:
+            raise ValueError(f"ramp_s must be > 0, got {self.ramp_s}")
+        self._rng = random.Random(self.seed)
+
+    @property
+    def elapsed(self) -> float:
+        """Time since the last reinforcer (or since start)."""
+        return self._elapsed
+
+    def hazard(self, t: float) -> float:
+        return self.max_rate_hz * min(1.0, (t / self.ramp_s) ** 2)
+
+    def next_irt(self) -> float:
+        start = self._elapsed
+        t = start
+        while True:
+            t += -math.log(1.0 - self._rng.random()) / self.max_rate_hz
+            if self._rng.random() * self.max_rate_hz < self.hazard(t):
+                break
+        self._elapsed = t
+        return t - start
+
+    def freeze_for_reinforcer(self, duration: float) -> None:
+        self._elapsed = 0.0
+
+
+class SingleSubject(Protocol):
+    """A single-operandum responder that emits inter-response times."""
+
+    def next_irt(self) -> float: ...
+
+
 class MultiVirtualSubject:
     """N independent Poisson responders, one per operandum."""
 
@@ -104,14 +163,15 @@ class VirtualOperandum:
     """Single-operandum virtual operandum.
 
     On each ``poll()`` call, advances the supplied ``ManualClock`` by
-    one IRT drawn from the underlying ``VirtualSubject`` and returns a
-    single ``ResponseSample`` at the new clock time.
+    one IRT drawn from the underlying subject and returns a single
+    ``ResponseSample`` at the new clock time. Reinforcer deliveries are
+    forwarded to subjects that define ``freeze_for_reinforcer``.
     """
 
     def __init__(
         self,
         operandum_index: int,
-        subject: VirtualSubject,
+        subject: SingleSubject,
         clock: ManualClock,
     ) -> None:
         self.operandum_index = operandum_index
@@ -124,6 +184,11 @@ class VirtualOperandum:
         return [
             ResponseSample(operandum_index=self.operandum_index, timestamp=ts)
         ]
+
+    def freeze_for_reinforcer(self, duration: float) -> None:
+        freeze = getattr(self.subject, "freeze_for_reinforcer", None)
+        if callable(freeze):
+            freeze(duration)
 
     def close(self) -> None:  # pragma: no cover - nothing to release
         pass
@@ -207,6 +272,8 @@ class RecordingReinforcer:
 __all__ = [
     "ManualClock",
     "VirtualSubject",
+    "ScallopSubject",
+    "SingleSubject",
     "MultiVirtualSubject",
     "VirtualOperandum",
     "MultiVirtualOperandum",

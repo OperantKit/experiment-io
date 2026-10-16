@@ -23,6 +23,7 @@ from experiment_io.hw import Clock, Operandum, Reinforcer, ResponseSample
 from experiment_io.hw.backends.virtual import (
     ManualClock,
     VirtualSubject,
+    ScallopSubject,
     MultiVirtualSubject,
     VirtualOperandum,
     MultiVirtualOperandum,
