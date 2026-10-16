@@ -26,6 +26,7 @@ from experiment_io.hw.backends.virtual import (
     ManualClock,
     VirtualSubject,
     ScallopSubject,
+    MatchingSubject,
     MultiVirtualSubject,
     VirtualOperandum,
     MultiVirtualOperandum,

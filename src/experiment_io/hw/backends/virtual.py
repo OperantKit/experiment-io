@@ -1,11 +1,12 @@
 """Virtual (in-memory) HAL backend.
 
 Wraps a virtual subject (the Poisson ``VirtualSubject`` or the
-reinforcement-sensitive ``ScallopSubject``) and a deterministic
-``ManualClock`` so that the same hardware-driven runner code path can be
-exercised with no real I/O. This is the canonical home for the
-``ManualClock`` / ``VirtualSubject`` / ``ScallopSubject`` /
-``MultiVirtualSubject`` primitives used by experiment harnesses.
+reinforcement-sensitive ``ScallopSubject`` and ``MatchingSubject``) and a
+deterministic ``ManualClock`` so that the same hardware-driven runner
+code path can be exercised with no real I/O. This is the canonical home
+for the ``ManualClock`` / ``VirtualSubject`` / ``ScallopSubject`` /
+``MatchingSubject`` / ``MultiVirtualSubject`` primitives used by
+experiment harnesses.
 """
 
 from __future__ import annotations
@@ -123,6 +124,147 @@ class SingleSubject(Protocol):
     def next_irt(self) -> float: ...
 
 
+class MultiSubject(Protocol):
+    """A responder spread over ``n`` operanda.
+
+    ``next_event`` returns the operandum of the next response and the
+    time since the previous one; ``freeze_for_reinforcer`` is called
+    after each reinforcer delivery.
+    """
+
+    @property
+    def n(self) -> int: ...
+
+    def next_event(self) -> tuple[int, float]: ...
+
+    def freeze_for_reinforcer(self, duration: float) -> None: ...
+
+
+class MatchingSubject:
+    """Responder that shifts responses toward the key with the higher local reinforcement rate.
+
+    Each operandum carries a local reinforcement rate: an exponential
+    moving average, updated by ``learning_rate`` after every response on
+    that operandum, of whether the response was reinforced (1) or not (0).
+    A key that is not being visited keeps its last estimate. After each
+    update the response allocation moves by ``step_size`` toward the keys
+    whose local rate is above the mean (melioration; Herrnstein & Vaughan,
+    1980), and no key's allocation falls below ``floor``. The allocation
+    starts from ``initial_allocation`` (equal by default).
+
+    Responses arrive as a Poisson process at ``rate_hz``. Before each
+    response the subject stays on its current operandum with probability
+    ``stay``; otherwise it picks an operandum in proportion to the
+    allocation (possibly the current one). The stay bias lowers the
+    switching rate but leaves the long-run response share equal to the
+    allocation.
+
+    The allocation is never set from the programmed schedule. It stops
+    moving when the local rates are equal, i.e. when reinforcers per
+    response are the same on every key, which is where relative responses
+    equal relative obtained reinforcers. Whether a schedule produces
+    matching is therefore left to the contingency.
+
+    ``freeze_for_reinforcer`` is the reinforcer notification: it marks the
+    last response as reinforced.
+    """
+
+    def __init__(
+        self,
+        n: int = 2,
+        *,
+        rate_hz: float = 1.0,
+        learning_rate: float = 0.003,
+        step_size: float = 0.01,
+        stay: float = 0.0,
+        floor: float = 0.02,
+        initial_allocation: tuple[float, ...] | None = None,
+        seed: int = 0,
+    ) -> None:
+        if n < 2:
+            raise ValueError(f"n must be >= 2, got {n}")
+        if rate_hz <= 0:
+            raise ValueError(f"rate_hz must be > 0, got {rate_hz}")
+        if not 0 < learning_rate <= 1:
+            raise ValueError(f"learning_rate must be in (0, 1], got {learning_rate}")
+        if not 0 < step_size <= 1:
+            raise ValueError(f"step_size must be in (0, 1], got {step_size}")
+        if not 0 <= stay < 1:
+            raise ValueError(f"stay must be in [0, 1), got {stay}")
+        if not 0 < floor < 1 / n:
+            raise ValueError(f"floor must be in (0, 1/n), got {floor}")
+        allocation = initial_allocation if initial_allocation is not None else (1.0,) * n
+        if len(allocation) != n:
+            raise ValueError(f"initial_allocation must have {n} values, got {len(allocation)}")
+        if any(a <= 0 for a in allocation):
+            raise ValueError(f"initial_allocation must be > 0, got {allocation}")
+        total = sum(allocation)
+        self._n = n
+        self.rate_hz = rate_hz
+        self.learning_rate = learning_rate
+        self.step_size = step_size
+        self.stay = stay
+        self.floor = floor
+        self._allocation = [a / total for a in allocation]
+        self._local_rates = [0.0] * n
+        self._rng = random.Random(seed)
+        self._current: int | None = None
+        self._awaiting_outcome = False
+
+    @property
+    def n(self) -> int:
+        return self._n
+
+    @property
+    def allocation(self) -> tuple[float, ...]:
+        """Probability of choosing each key when not staying (sums to 1)."""
+        return tuple(self._allocation)
+
+    @property
+    def local_rates(self) -> tuple[float, ...]:
+        """Estimated reinforcers per response on each key."""
+        return tuple(self._local_rates)
+
+    def _pick(self) -> int:
+        u = self._rng.random()
+        acc = 0.0
+        for k, a in enumerate(self._allocation):
+            acc += a
+            if u < acc:
+                return k
+        return self._n - 1
+
+    def _learn(self, key: int, reinforced: float) -> None:
+        rates = self._local_rates
+        rates[key] += self.learning_rate * (reinforced - rates[key])
+        total = sum(rates)
+        if total <= 0:
+            return
+        mean = total / self._n
+        moved = [a + self.step_size * (r - mean) / total for a, r in zip(self._allocation, rates)]
+        # Lift any allocation below the floor and take the difference from
+        # the largest, so the allocation still sums to 1.
+        deficit = sum(self.floor - a for a in moved if a < self.floor)
+        moved = [max(self.floor, a) for a in moved]
+        largest = max(range(self._n), key=lambda k: moved[k])
+        moved[largest] -= deficit
+        self._allocation = moved
+
+    def next_event(self) -> tuple[int, float]:
+        if self._awaiting_outcome and self._current is not None:
+            self._learn(self._current, 0.0)
+        delta = -math.log(1.0 - self._rng.random()) / self.rate_hz
+        if self._current is None or self._rng.random() >= self.stay:
+            self._current = self._pick()
+        self._awaiting_outcome = True
+        return self._current, delta
+
+    def freeze_for_reinforcer(self, duration: float) -> None:
+        if self._awaiting_outcome and self._current is not None:
+            self._learn(self._current, 1.0)
+        self._awaiting_outcome = False
+
+
 class MultiVirtualSubject:
     """N independent Poisson responders, one per operandum."""
 
@@ -225,7 +367,7 @@ class MultiVirtualOperandum:
 
     def __init__(
         self,
-        subject: MultiVirtualSubject,
+        subject: MultiSubject,
         clock: ManualClock,
     ) -> None:
         self.subject = subject
@@ -274,6 +416,8 @@ __all__ = [
     "VirtualSubject",
     "ScallopSubject",
     "SingleSubject",
+    "MultiSubject",
+    "MatchingSubject",
     "MultiVirtualSubject",
     "VirtualOperandum",
     "MultiVirtualOperandum",
