@@ -1,11 +1,12 @@
 """Virtual (in-memory) HAL backend.
 
 Wraps a virtual subject (the Poisson ``VirtualSubject`` or the
-reinforcement-sensitive ``ScallopSubject`` and ``MatchingSubject``) and a
+reinforcement-sensitive ``ScallopSubject``, ``SpacedRespondingSubject``
+and ``MatchingSubject``) and a
 deterministic ``ManualClock`` so that the same hardware-driven runner
 code path can be exercised with no real I/O. This is the canonical home
 for the ``ManualClock`` / ``VirtualSubject`` / ``ScallopSubject`` /
-``MatchingSubject`` / ``MultiVirtualSubject`` primitives used by
+``SpacedRespondingSubject`` / ``MatchingSubject`` / ``MultiVirtualSubject`` primitives used by
 experiment harnesses.
 """
 
@@ -116,6 +117,79 @@ class ScallopSubject:
 
     def freeze_for_reinforcer(self, duration: float) -> None:
         self._elapsed = 0.0
+
+
+class SpacedRespondingSubject:
+    """Responder whose inter-response times are shaped by which IRTs pay off.
+
+    The subject holds a mean IRT ``mu`` (``initial_mean_s`` at the start,
+    1 s by default, i.e. roughly a 1 Hz responder). Each IRT is drawn from
+    a normal distribution with mean ``mu`` and coefficient of variation
+    ``cv``, redrawn until positive. When a response is not followed by a
+    reinforcer, ``mu`` moves toward ``overshoot`` times that response's
+    IRT: ``mu += learning_rate * (overshoot * irt - mu)``. When it is
+    reinforced, ``mu`` shrinks: ``mu *= 1 - shrink``.
+
+    The subject knows nothing about the schedule. Under differential
+    reinforcement of low rate (DRL), short IRTs go unreinforced and push
+    ``mu`` up, reinforced long IRTs pull it back down, and the IRT
+    distribution settles around the DRL interval. Because only IRTs
+    shorter than the interval go unreinforced, ``mu`` levels off near the
+    point where ``overshoot`` times the mean unreinforced IRT equals
+    ``mu``. With ``overshoot = 1.2`` that point lies below a 10-s interval
+    and fewer than a third of the IRTs reach it, so the default is 2.0.
+
+    ``freeze_for_reinforcer`` is the reinforcer notification: it marks the
+    last response as reinforced.
+    """
+
+    def __init__(
+        self,
+        *,
+        initial_mean_s: float = 1.0,
+        cv: float = 0.3,
+        overshoot: float = 2.0,
+        learning_rate: float = 0.1,
+        shrink: float = 0.02,
+        seed: int = 0,
+    ) -> None:
+        if initial_mean_s <= 0:
+            raise ValueError(f"initial_mean_s must be > 0, got {initial_mean_s}")
+        if cv <= 0:
+            raise ValueError(f"cv must be > 0, got {cv}")
+        if overshoot <= 0:
+            raise ValueError(f"overshoot must be > 0, got {overshoot}")
+        if not 0 < learning_rate <= 1:
+            raise ValueError(f"learning_rate must be in (0, 1], got {learning_rate}")
+        if not 0 <= shrink < 1:
+            raise ValueError(f"shrink must be in [0, 1), got {shrink}")
+        self.cv = cv
+        self.overshoot = overshoot
+        self.learning_rate = learning_rate
+        self.shrink = shrink
+        self._mean = initial_mean_s
+        self._rng = random.Random(seed)
+        self._last_irt: float | None = None
+
+    @property
+    def mean_irt(self) -> float:
+        """Current mean of the IRT distribution, in seconds."""
+        return self._mean
+
+    def next_irt(self) -> float:
+        if self._last_irt is not None:
+            self._mean += self.learning_rate * (self.overshoot * self._last_irt - self._mean)
+        while True:
+            irt = self._rng.gauss(self._mean, self.cv * self._mean)
+            if irt > 0:
+                break
+        self._last_irt = irt
+        return irt
+
+    def freeze_for_reinforcer(self, duration: float) -> None:
+        if self._last_irt is not None:
+            self._mean *= 1.0 - self.shrink
+        self._last_irt = None
 
 
 class SingleSubject(Protocol):
@@ -415,6 +489,7 @@ __all__ = [
     "ManualClock",
     "VirtualSubject",
     "ScallopSubject",
+    "SpacedRespondingSubject",
     "SingleSubject",
     "MultiSubject",
     "MatchingSubject",
