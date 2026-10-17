@@ -6,7 +6,8 @@ and ``MatchingSubject``) and a
 deterministic ``ManualClock`` so that the same hardware-driven runner
 code path can be exercised with no real I/O. This is the canonical home
 for the ``ManualClock`` / ``VirtualSubject`` / ``ScallopSubject`` /
-``SpacedRespondingSubject`` / ``MatchingSubject`` / ``MultiVirtualSubject`` primitives used by
+``SpacedRespondingSubject`` / ``IrtCopyistSubject`` / ``MatchingSubject`` /
+``MultiVirtualSubject`` primitives used by
 experiment harnesses.
 """
 
@@ -189,6 +190,87 @@ class SpacedRespondingSubject:
     def freeze_for_reinforcer(self, duration: float) -> None:
         if self._last_irt is not None:
             self._mean *= 1.0 - self.shrink
+        self._last_irt = None
+
+
+class IrtCopyistSubject:
+    """Responder that copies the inter-response times that were reinforced.
+
+    The subject holds a pool of ``pool_size`` IRTs. Each IRT is a pool
+    member picked at random, multiplied by log-normal noise with mean 1
+    and coefficient of variation ``cv``. When a response is reinforced,
+    its IRT joins the end of the pool and the oldest member leaves. The
+    initial pool is ``initial_irts`` if given, otherwise drawn from an
+    exponential distribution at ``initial_rate_hz``. The model follows the
+    copyist account of response emission (Tanno & Silberberg, 2012).
+
+    The subject knows nothing about the schedule. A ratio schedule
+    reinforces a response regardless of the IRT before it, so the pool
+    keeps the IRTs the subject already emits; an interval schedule sets
+    up a reinforcer with the passage of time, so the response that
+    collects it tends to end a long IRT and the pool drifts toward longer
+    IRTs. Any rate difference between the two is left to the contingency.
+
+    ``initial_irts`` lets two subjects start from the same pool while
+    ``seed`` keeps their response streams independent (as in a yoked
+    pair). ``freeze_for_reinforcer`` is the reinforcer notification: it
+    marks the last response as reinforced.
+
+    Tanno, T., & Silberberg, A. (2012). The copyist model of response
+    emission. *Psychonomic Bulletin & Review*, *19*(5), 759–778.
+    https://doi.org/10.3758/s13423-012-0267-1
+    """
+
+    def __init__(
+        self,
+        *,
+        pool_size: int = 10,
+        cv: float = 0.3,
+        initial_rate_hz: float = 1.0,
+        initial_irts: tuple[float, ...] | None = None,
+        seed: int = 0,
+    ) -> None:
+        if pool_size < 1:
+            raise ValueError(f"pool_size must be >= 1, got {pool_size}")
+        if cv < 0:
+            raise ValueError(f"cv must be >= 0, got {cv}")
+        if initial_rate_hz <= 0:
+            raise ValueError(f"initial_rate_hz must be > 0, got {initial_rate_hz}")
+        self._rng = random.Random(seed)
+        if initial_irts is None:
+            pool = [
+                -math.log(1.0 - self._rng.random()) / initial_rate_hz
+                for _ in range(pool_size)
+            ]
+        else:
+            if len(initial_irts) != pool_size:
+                raise ValueError(
+                    f"initial_irts must have {pool_size} values, got {len(initial_irts)}"
+                )
+            if any(irt <= 0 for irt in initial_irts):
+                raise ValueError(f"initial_irts must be > 0, got {initial_irts}")
+            pool = [float(irt) for irt in initial_irts]
+        self.cv = cv
+        self._sigma = math.sqrt(math.log(1.0 + cv * cv))
+        self._pool = pool
+        self._last_irt: float | None = None
+
+    @property
+    def pool(self) -> tuple[float, ...]:
+        """The IRTs the next one is copied from, oldest first."""
+        return tuple(self._pool)
+
+    def next_irt(self) -> float:
+        base = self._pool[self._rng.randrange(len(self._pool))]
+        noise = math.exp(self._rng.gauss(-self._sigma * self._sigma / 2.0, self._sigma))
+        irt = base * noise
+        self._last_irt = irt
+        return irt
+
+    def freeze_for_reinforcer(self, duration: float) -> None:
+        if self._last_irt is not None:
+            self._pool.pop(0)
+            self._pool.append(self._last_irt)
         self._last_irt = None
 
 
@@ -490,6 +572,7 @@ __all__ = [
     "VirtualSubject",
     "ScallopSubject",
     "SpacedRespondingSubject",
+    "IrtCopyistSubject",
     "SingleSubject",
     "MultiSubject",
     "MatchingSubject",

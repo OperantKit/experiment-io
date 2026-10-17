@@ -25,6 +25,7 @@ from experiment_io.hw.backends.virtual import (
     VirtualSubject,
     ScallopSubject,
     SpacedRespondingSubject,
+    IrtCopyistSubject,
     MatchingSubject,
     MultiVirtualSubject,
     VirtualOperandum,
