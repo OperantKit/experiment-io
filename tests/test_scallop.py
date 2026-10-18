@@ -87,6 +87,61 @@ def test_poisson_subject_does_not_accelerate() -> None:
     assert abs(second - first) / (first + second) < 0.05
 
 
+def test_scallop_subject_default_stream_is_unchanged() -> None:
+    # The default (quadratic, Poisson) subject keeps its seeded IRT stream.
+    subject = ScallopSubject(max_rate_hz=2.0, ramp_s=60.0, seed=3)
+    irts = [subject.next_irt() for _ in range(5)]
+    expected = [20.533857157, 2.477287797, 0.476649235, 2.23494025, 0.457848965]
+    assert irts == pytest.approx(expected, abs=1e-8)
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [{"exponent": 0.0}, {"exponent": -1.0}, {"cv": 0.0}, {"cv": -0.3}],
+)
+def test_scallop_subject_rejects_non_positive_shape(kwargs: dict[str, float]) -> None:
+    with pytest.raises(ValueError):
+        ScallopSubject(**kwargs)
+
+
+def test_scallop_subject_exponent_sets_the_rise_of_the_rate() -> None:
+    subject = ScallopSubject(max_rate_hz=2.0, ramp_s=60.0, exponent=4.0)
+    assert subject.hazard(30.0) == pytest.approx(2.0 * 0.5**4)
+    assert subject.hazard(60.0) == pytest.approx(2.0)
+    assert subject.hazard(90.0) == pytest.approx(2.0)
+
+
+def test_regular_scallop_subject_is_deterministic_under_seed() -> None:
+    a = ScallopSubject(exponent=4.0, cv=0.3, seed=7)
+    b = ScallopSubject(exponent=4.0, cv=0.3, seed=7)
+    irts = [a.next_irt() for _ in range(20)]
+    assert irts == [b.next_irt() for _ in range(20)]
+    assert all(irt > 0 for irt in irts)
+
+
+@pytest.mark.parametrize("cv", [0.3, 0.5])
+def test_regular_scallop_subject_irts_have_the_given_cv_after_the_ramp(cv: float) -> None:
+    subject = ScallopSubject(max_rate_hz=2.0, ramp_s=60.0, exponent=4.0, cv=cv, seed=5)
+    while subject.elapsed < 60.0:
+        subject.next_irt()
+    irts = [subject.next_irt() for _ in range(4000)]
+    mean = sum(irts) / len(irts)
+    sd = (sum((x - mean) ** 2 for x in irts) / (len(irts) - 1)) ** 0.5
+    assert 0.48 < mean < 0.52  # 1 / max_rate_hz
+    assert abs(sd / mean - cv) < 0.03
+
+
+def test_regular_scallop_subject_accelerates_more_steeply_with_a_higher_exponent() -> None:
+    quadratic = ScallopSubject(max_rate_hz=2.0, ramp_s=60.0, cv=0.3, seed=11)
+    quartic = ScallopSubject(max_rate_hz=2.0, ramp_s=60.0, exponent=4.0, cv=0.3, seed=11)
+    early = [
+        sum(f for f, _ in (_interval_halves(s, 60.0) for _ in range(30)))
+        for s in (quadratic, quartic)
+    ]
+    # Expected share in the first half: 0.5**3 = 0.125 versus 0.5**5 = 0.031.
+    assert early[1] < early[0] / 2
+
+
 def test_virtual_operandum_forwards_reinforcer_to_scallop_subject() -> None:
     clock = ManualClock()
     subject = ScallopSubject(seed=0)

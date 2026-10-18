@@ -73,13 +73,22 @@ class VirtualSubject:
 class ScallopSubject:
     """Responder whose rate grows with time since the last reinforcer.
 
-    The hazard of responding at time ``t`` since the last reinforcer is
-    ``max_rate_hz * min(1, (t / ramp_s) ** 2)``: zero right after a
-    reinforcer, rising quadratically, and constant at ``max_rate_hz``
-    once ``t >= ramp_s``. Under a fixed-interval schedule this yields the
-    post-reinforcement pause followed by accelerated responding (the FI
-    scallop). IRTs are drawn by thinning a ``max_rate_hz`` Poisson
-    process with a seeded RNG.
+    The rate of responding at time ``t`` since the last reinforcer is
+    ``max_rate_hz * min(1, (t / ramp_s) ** exponent)``: zero right after a
+    reinforcer, rising as a power of ``t``, and constant at
+    ``max_rate_hz`` once ``t >= ramp_s``. Under a fixed-interval schedule
+    this yields the post-reinforcement pause followed by accelerated
+    responding (the FI scallop). The cumulative record within an interval
+    then grows as ``t ** (exponent + 1)``.
+
+    ``cv`` is the coefficient of variation of the IRTs at a constant
+    rate. With ``cv = 1`` (the default) responses form a Poisson process,
+    drawn by thinning a ``max_rate_hz`` Poisson process. With ``cv < 1``
+    responding is more regular: each IRT is a gamma variate with mean 1
+    and coefficient of variation ``cv`` in operational time (the
+    integrated rate), mapped back onto real time (a time-rescaled gamma
+    renewal process). The rate shape is the same either way; only the
+    response-to-response variability changes.
 
     ``freeze_for_reinforcer`` is the reinforcer notification: it resets
     the time since reinforcement to zero.
@@ -88,6 +97,8 @@ class ScallopSubject:
     max_rate_hz: float = 2.0
     ramp_s: float = 60.0
     seed: int = 0
+    exponent: float = 2.0
+    cv: float = 1.0
     _rng: random.Random = field(init=False)
     _elapsed: float = field(init=False, default=0.0)
 
@@ -96,6 +107,10 @@ class ScallopSubject:
             raise ValueError(f"max_rate_hz must be > 0, got {self.max_rate_hz}")
         if self.ramp_s <= 0:
             raise ValueError(f"ramp_s must be > 0, got {self.ramp_s}")
+        if self.exponent <= 0:
+            raise ValueError(f"exponent must be > 0, got {self.exponent}")
+        if self.cv <= 0:
+            raise ValueError(f"cv must be > 0, got {self.cv}")
         self._rng = random.Random(self.seed)
 
     @property
@@ -104,17 +119,37 @@ class ScallopSubject:
         return self._elapsed
 
     def hazard(self, t: float) -> float:
-        return self.max_rate_hz * min(1.0, (t / self.ramp_s) ** 2)
+        """Response rate at time ``t`` since the last reinforcer."""
+        return self.max_rate_hz * min(1.0, (t / self.ramp_s) ** self.exponent)
 
     def next_irt(self) -> float:
         start = self._elapsed
-        t = start
-        while True:
-            t += -math.log(1.0 - self._rng.random()) / self.max_rate_hz
-            if self._rng.random() * self.max_rate_hz < self.hazard(t):
-                break
+        if self.cv == 1.0:
+            t = start
+            while True:
+                t += -math.log(1.0 - self._rng.random()) / self.max_rate_hz
+                if self._rng.random() * self.max_rate_hz < self.hazard(t):
+                    break
+        else:
+            shape = 1.0 / (self.cv * self.cv)
+            step = self._rng.gammavariate(shape, 1.0 / shape)
+            t = self._operational_inverse(self._operational(start) + step)
         self._elapsed = t
         return t - start
+
+    def _operational(self, t: float) -> float:
+        """Integrated rate from 0 to ``t`` (expected responses by ``t``)."""
+        p = self.exponent + 1.0
+        if t <= self.ramp_s:
+            return self.max_rate_hz * self.ramp_s / p * (t / self.ramp_s) ** p
+        return self.max_rate_hz * (self.ramp_s / p + t - self.ramp_s)
+
+    def _operational_inverse(self, c: float) -> float:
+        p = self.exponent + 1.0
+        ramp_total = self.max_rate_hz * self.ramp_s / p
+        if c <= ramp_total:
+            return self.ramp_s * (c / ramp_total) ** (1.0 / p)
+        return self.ramp_s + (c - ramp_total) / self.max_rate_hz
 
     def freeze_for_reinforcer(self, duration: float) -> None:
         self._elapsed = 0.0
