@@ -42,6 +42,15 @@ from experiment_io.hw.backends.serial import (
 from experiment_io.hw.backends.hil_bridge import HilBridge
 ```
 
+### `IrtCopyistSubject`
+
+強化された反応間時間（IRT）を写し取る応答器（Tanno & Silberberg, 2012）。
+yoked の VR と VI では Catania et al. (1977) の反応率の差（VR の方が速い）は
+再現するが、Baum (1993) が報告した中域での両者の反応率の収束は再現しない:
+集合の大きさ 5〜200・IRT のばらつき（CV）0.1〜0.5 のどの組でも、
+VR / yoked VI の反応率比が 1.1 まで下がる強化率の 10 seed 中央値は
+1 時間あたり 300〜600 強化に入らない。
+
 ### ハードウェアからセッションを駆動する
 
 `experiment_io.drive(driver, operanda, reinforcers, clock, ...)` は

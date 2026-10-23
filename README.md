@@ -40,6 +40,16 @@ from experiment_io.hw.backends.serial import (
 from experiment_io.hw.backends.hil_bridge import HilBridge
 ```
 
+### `IrtCopyistSubject`
+
+A responder that copies the inter-response times (IRTs) that were reinforced
+(Tanno & Silberberg, 2012). Under yoked VR and VI it reproduces the rate
+difference of Catania et al. (1977), VR responding faster, but not the
+convergence of the two rates in the midrange reported by Baum (1993): across
+pool sizes 5 to 200 and IRT variations (CV) 0.1 to 0.5, the ten-seed median of
+the reinforcement rate at which its VR / yoked VI rate ratio falls to 1.1 never
+lies within 300 to 600 reinforcers per hour.
+
 ### Driving a session from hardware
 
 `experiment_io.drive(driver, operanda, reinforcers, clock, ...)`
