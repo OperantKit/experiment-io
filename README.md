@@ -2,110 +2,33 @@
 
 :jp: [日本語版 README](README.ja.md)
 
-Hardware abstraction layer (HAL) for the OperantKit experiment runtime.
+experiment-io connects a session to devices. It reads responses from operanda (levers, keys, nose-poke sensors) and operates reinforcer devices (feeders, dippers, pumps), and the same loop runs with virtual subjects in simulated time, with a microcontroller over a serial port, or with a hardware-in-the-loop (HIL) process. Within [OperantKit](https://github.com/OperantKit) it is the hardware abstraction layer (HAL) under [session-runner](https://github.com/OperantKit/session-runner).
 
-`experiment-io` defines the protocol contracts and concrete backends that let
-the same Session/Runner code drive:
+- **Test the session without hardware.** Seeded virtual subjects and a manual clock run a whole session in milliseconds, and it repeats exactly.
+- **One loop for every backend.** `drive` polls the operanda, passes responses to the session, and has the reinforcer delivered by the device paired with the operandum that produced it.
+- **Time-based schedules keep running** when no response arrives, so FI, VI, FT, VT, DRO, and time limits are evaluated.
 
-- **virtual** — in-memory Poisson responders for hermetic unit tests
-- **serial** — Arduino-style JSONL over a duplex byte stream (pyserial optional)
-- **hil_bridge** — stdio bridge to a `contingency-rs` hardware-in-the-loop subprocess
-
-Imports are intentionally light: pulling in `experiment_io.hw.backends.serial`
-does not require `pyserial`, and `experiment_io.hw.backends.hil_bridge` does
-not require the Rust binary to exist.
-
-## Public API
-
-```python
-from experiment_io import drive, SessionDriverLike
-from experiment_io.hw import Clock, Operandum, Reinforcer, ResponseSample
-from experiment_io.hw.backends.virtual import (
-    ManualClock,
-    VirtualSubject,
-    ScallopSubject,
-    SpacedRespondingSubject,
-    IrtCopyistSubject,
-    MatchingSubject,
-    MultiVirtualSubject,
-    VirtualOperandum,
-    MultiVirtualOperandum,
-    RecordingReinforcer,
-)
-from experiment_io.hw.backends.serial import (
-    SerialOperandum,
-    SerialReinforcer,
-    open_serial,
-)
-from experiment_io.hw.backends.hil_bridge import HilBridge
-```
-
-### `IrtCopyistSubject`
-
-A responder that copies the inter-response times (IRTs) that were reinforced
-(Tanno & Silberberg, 2012). Under yoked VR and VI it reproduces the rate
-difference of Catania et al. (1977), VR responding faster, but not the
-convergence of the two rates in the midrange reported by Baum (1993): across
-pool sizes 5 to 200 and IRT variations (CV) 0.1 to 0.5, the ten-seed median of
-the reinforcement rate at which its VR / yoked VI rate ratio falls to 1.1 never
-lies within 300 to 600 reinforcers per hour.
-
-### Driving a session from hardware
-
-`experiment_io.drive(driver, operanda, reinforcers, clock, ...)`
-loops over HAL devices and feeds responses into anything satisfying
-the `SessionDriverLike` Protocol (typically a
-`session_runner.SessionRunner`). The driver type is structurally
-typed so this package does not import `session-runner`.
-
-```python
-from contingency import ScheduleBuilder
-from experiment_core import ReinforcementCountExit
-from experiment_io import drive
-from experiment_io.hw.backends.virtual import (
-    ManualClock, RecordingReinforcer, VirtualOperandum, VirtualSubject,
-)
-from session_runner import SessionConfig, SessionRunner
-
-clock = ManualClock()
-op = VirtualOperandum(0, VirtualSubject(rate_hz=5.0, seed=0), clock)
-rein = RecordingReinforcer(operandum_index=0)
-
-runner = SessionRunner(
-    SessionConfig(
-        name="demo",
-        schedule=ScheduleBuilder.fr(1),
-        exit_condition=ReinforcementCountExit(count=3),
-    ),
-    clock=clock,
-)
-runner.start(start_time=clock())
-drive(runner, [op], [rein], clock, reinforcer_duration=0.2)
-```
+Notes for AI coding agents are in [AGENTS.md](AGENTS.md).
 
 ## Installation
 
-```bash
-pip install experiment-io
-pip install 'experiment-io[hw-serial]'   # optional serial backend
-```
-
-For development:
+Python 3.11 or newer. experiment-io is not on PyPI yet. It has no dependencies of its own and installs directly from GitHub:
 
 ```bash
-mise exec -- python -m venv .venv
-.venv/bin/python -m pip install -e ".[dev]"
+pip install git+https://github.com/OperantKit/experiment-io
+pip install pyserial     # optional: only to open a real serial port
 ```
 
-For the optional serial backend on real hardware:
+The example below also needs a session, which comes from session-runner and the packages under it. Install them without dependency resolution:
 
 ```bash
-.venv/bin/python -m pip install -e ".[hw-serial]"
+G=git+https://github.com/OperantKit
+pip install --no-deps $G/contingency-dsl-py $G/contingency-py $G/experiment-core $G/session-runner
 ```
 
-## 30-second example
+## Example
 
-Drive a concurrent schedule from two virtual operanda, with a feeder per operandum, until ten reinforcers have been delivered:
+Drive a concurrent FR 5 FR 5 schedule from two virtual operanda, with one feeder per operandum, until ten reinforcers have been delivered:
 
 ```python
 from contingency_dsl import parse
@@ -137,48 +60,83 @@ print(runner.state_name, runner.component_responses, [len(f.calls) for f in feed
 # FINISHED [45, 6] [9, 1] 49.8
 ```
 
-The faster responder (2 responses/s) produced 9 of the 10 reinforcers, each delivered by the feeder paired with the operandum that completed the ratio; the clock includes 3 s of reinforcer access per delivery. Replacing `MultiVirtualOperandum` and `RecordingReinforcer` with `SerialOperandum` and `SerialReinforcer` runs the same session on a microcontroller. The example uses [session-runner](https://github.com/OperantKit/session-runner) (`pip install session-runner`, which installs experiment-core, contingency-py, and contingency-dsl-py).
+The faster responder (2 responses/s) produced 9 of the 10 reinforcers, each delivered by the feeder paired with the operandum that completed the ratio; the clock includes 3 s of reinforcer access per delivery. Replacing `MultiVirtualOperandum` and `RecordingReinforcer` with `SerialOperandum` and `SerialReinforcer` runs the same session on a microcontroller.
 
-## Why not a 50-line hand-written hardware loop?
+## What is included
 
-A polling loop written for one device mixes timing, routing, and device code. This package separates them:
+| Part | Names | What it does |
+|---|---|---|
+| Loop | `drive`, `SessionDriverLike` | Runs any session object with the `SessionDriverLike` methods (typically `session_runner.SessionRunner`) from the devices until it finishes; `max_duration` and `max_steps` bound the loop |
+| Interfaces | `Clock`, `Operandum`, `Reinforcer`, `ResponseSample` (`experiment_io.hw`) | What a device backend has to provide |
+| Virtual devices | `ManualClock`, `VirtualOperandum`, `MultiVirtualOperandum`, `RecordingReinforcer` | Simulated time, simulated operanda, and a reinforcer device that records each delivery |
+| Virtual subjects | `VirtualSubject`, `MultiVirtualSubject` | Poisson responders (exponential interresponse times), one per operandum in the multi version |
+| | `ScallopSubject` | Response rate grows with time since the last reinforcer: a post-reinforcement pause followed by accelerated responding under FI |
+| | `SpacedRespondingSubject` | Interresponse times (IRTs) shaped by which IRTs are reinforced |
+| | `IrtCopyistSubject` | Copies the IRTs that were reinforced (Tanno & Silberberg, 2012) |
+| | `MatchingSubject` | Shifts responding toward the operandum with the higher local reinforcement rate (melioration; Herrnstein & Vaughan, 1980) |
+| Serial | `SerialOperandum`, `SerialReinforcer`, `open_serial` (`experiment_io.hw.backends.serial`) | A device that speaks newline-delimited JSON over any stream with `readline` / `write` / `flush`; `open_serial` opens a real port with pyserial |
+| HIL | `HilBridge` (`experiment_io.hw.backends.hil_bridge`) | Starts a HIL program and talks to it over its standard input and output |
 
-- **One loop for every backend.** `drive` works with any object satisfying the `Operandum` / `Reinforcer` protocols: virtual subjects, a serial device, or the contingency-rs HIL bridge.
-- **Reinforcer routed to the right operandum.** On a concurrent schedule each response goes to `handle_response_on(index, ...)`, and the reinforcer is delivered by the device paired with the operandum that produced it.
-- **Deterministic simulation.** With `ManualClock` the loop advances virtual time instead of sleeping, and virtual subjects are seeded, so a whole session runs in milliseconds and repeats exactly. Multi-operandum virtual subjects do not respond during reinforcer access.
-- **Time-based schedules keep running.** When no response arrives the loop advances the clock and calls `handle_tick`, so FI, VI, FT, VT, DRO and time limits are evaluated; `max_duration` and `max_steps` bound the loop.
-- **Documented wire formats.** Serial devices and the HIL bridge speak newline-delimited JSON (`{"op": 0, "ts": 1.25, "kind": "response"}` in, `{"cmd": "reinforcer", "op": 0, "duration": 3.0}` out); `pyserial` is optional and imported lazily.
+Virtual subjects that serve several operanda do not respond during reinforcer access.
 
-## Tests
+Under yoked VR and VI, `IrtCopyistSubject` reproduces the rate difference of Catania et al. (1977), VR responding faster, but not the convergence of the two rates in the midrange reported by Baum (1993): across pool sizes 5 to 200 and IRT variations (CV) 0.1 to 0.5, the ten-seed median of the reinforcement rate at which its VR / yoked VI rate ratio falls to 1.1 never lies within 300 to 600 reinforcers per hour. The yoked comparison (pool size 70 and CV 0.2, chosen from that sweep) is `tests/laws/test_ratio_vs_interval.py` in [operantkit-py](https://github.com/OperantKit/operantkit-py).
 
-```bash
-.venv/bin/python -m pytest -q
+### Wire formats
+
+Serial device, one JSON object per line:
+
+```text
+device -> host   {"op": 0, "ts": 1.25, "kind": "response"}
+host -> device   {"cmd": "reinforcer", "op": 0, "duration": 3.0}
 ```
 
-## Dependencies
+HIL program, one JSON object per line on its standard input and output:
 
-`experiment-io` has no runtime dependency on other OperantKit packages.
-`drive` accepts any object with the `SessionDriverLike` surface, so the
-session itself comes from `session-runner` (`pip install session-runner`),
-which is what the examples above use.
+```text
+host -> program  {"cmd": "start", "session_id": "..."}
+                 {"cmd": "reinforcer", "op": 0, "duration": 3.0}
+                 {"cmd": "stop"}
+program -> host  {"event": "ready", "ts": 0.0}
+                 {"event": "response", "op": 0, "ts": 1.25}
+                 {"event": "reinforcer_done", "op": 0, "ts": 4.25}
+                 {"event": "error", "msg": "..."}
+```
 
-## HIL bridge binary
-
-`HilBridge` defaults to launching a Rust binary at a built-in path. For
-deployments where the binary lives elsewhere, pass the path explicitly:
+Timestamps are seconds from the device's own clock. Give `HilBridge` the program to start with `binary=` or the `OPERANTKIT_HIL_BINARY` environment variable:
 
 ```python
-# requires the operantkit-hil binary
+# requires a HIL program that speaks the protocol above
 from experiment_io.hw.backends.hil_bridge import HilBridge
 
-bridge = HilBridge(binary="/path/to/operantkit-hil")
+bridge = HilBridge(binary="/path/to/hil-program")
 ```
 
-The default may also be overridden via the `OPERANTKIT_HIL_BINARY`
-environment variable.
+## Limitations
 
-## Wire formats
+- Not on PyPI yet, and the API can still change.
+- No firmware is distributed. A serial device has to speak the JSON lines above; you write that program yourself.
+- The `contingency-hil` program of [contingency-rs](https://github.com/OperantKit/contingency-rs) is a TCP server with a different message format, so `HilBridge` cannot drive it as is. Without `binary=` or `OPERANTKIT_HIL_BINARY`, `HilBridge` falls back to a built-in relative path that contingency-rs does not build.
+- With a real clock, `drive` waits with `time.sleep` and polls every 1 ms by default (`poll_interval`). Hardware timing has not been measured.
+- The virtual subjects are models. They show that the program delivers the schedule you wrote, not what an animal will do.
 
-Both the serial and HIL bridge backends speak newline-delimited JSON.
-See the docstrings of `experiment_io.hw.backends.serial` and
-`experiment_io.hw.backends.hil_bridge` for the exact framing.
+## Development
+
+```bash
+git clone https://github.com/OperantKit/experiment-io && cd experiment-io
+python -m venv .venv
+G=git+https://github.com/OperantKit
+.venv/bin/python -m pip install --no-deps $G/contingency-dsl-py $G/contingency-py $G/experiment-core $G/session-runner -e .
+.venv/bin/python -m pip install pytest pytest-cov hypothesis
+.venv/bin/pytest
+```
+
+## References
+
+- Baum, W. M. (1993). Performances on ratio and interval schedules of reinforcement: Data and theory. *Journal of the Experimental Analysis of Behavior*, 59(2), 245–264. https://doi.org/10.1901/jeab.1993.59-245
+- Catania, A. C., Matthews, T. J., Silverman, P. J., & Yohalem, R. (1977). Yoked variable-ratio and variable-interval responding in pigeons. *Journal of the Experimental Analysis of Behavior*, 28(2), 155–161. https://doi.org/10.1901/jeab.1977.28-155
+- Herrnstein, R. J., & Vaughan, W. (1980). Melioration and behavioral allocation. In J. E. R. Staddon (Ed.), *Limits to action: The allocation of individual behavior* (pp. 143-176). Academic Press.
+- Tanno, T., & Silberberg, A. (2012). The copyist model of response emission. *Psychonomic Bulletin & Review*, 19(5), 759–778. https://doi.org/10.3758/s13423-012-0267-1
+
+## License
+
+MIT. See [LICENSE](LICENSE).
