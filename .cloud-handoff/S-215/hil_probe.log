@@ -1,0 +1,50 @@
+
+==============================================================================
+E1  HilBridge() with the default binary path
+==============================================================================
+DEFAULT_BINARY = apps/contingency-rs/target/debug/operantkit-hil
+exists?  False
+HilBridge() -> FileNotFoundError [Errno 2] No such file or directory: 'apps/contingency-rs/target/debug/operantkit-hil'
+contingency-rs builds: contingency-hil
+
+==============================================================================
+E2  HilBridge(binary=contingency-hil) over stdio, as experiment-io intends
+==============================================================================
+sent to stdin: start + reinforcer; process alive: True
+poll() returned within 2 s? False -> []
+binary stderr (first lines):
+  stderr: contingency-hil listening on 127.0.0.1:33459
+exit code after stop(): -15
+
+==============================================================================
+E3  HilBridge's host->program lines delivered to contingency-hil over TCP
+==============================================================================
+sent {"cmd": "start", "session_id": "s1"} -> replies: [] | process alive: True
+sent {"cmd": "reinforcer", "op": 0, "duration": 3.0} -> replies: [] | process alive: True
+sent {"cmd": "stop"} -> replies: [] | process alive: True
+-- now the binary's own protocol on the same socket (FR 3):
+sent {"type": "response", "time": 1.0, "operandum": "main"} -> replies: []
+sent {"type": "response", "time": 2.0, "operandum": "main"} -> replies: []
+sent {"type": "response", "time": 3.0, "operandum": "main"} -> replies: ['{"channel":"food","label":"SR+","magnitude":1.0,"time":3.0,"type":"reinforcer"}']
+3 more responses -> replies: ['{"channel":"food","label":"SR+","magnitude":1.0,"time":6.0,"type":"reinforcer"}']
+exit code after disconnect: 0
+
+==============================================================================
+E3b  contingency-hil's reinforcer line fed to HilBridge.poll() (what the host would see)
+==============================================================================
+line: {"channel":"food","label":"SR+","magnitude":1.0,"time":6.0,"type":"reinforcer"}
+  [log experiment_io.hw.backends.hil_bridge WARNING] HilBridge: unknown event: {'channel': 'food', 'label': 'SR+', 'magnitude': 1.0, 'time': 6.0, 'type': 'reinforcer'}
+HilBridge.poll() -> []
+
+==============================================================================
+E4  contingency-py HilBridgeApparatus (the documented client) <-> contingency-hil
+==============================================================================
+connected: ApparatusStatus(connected=True, last_error=None)
+responses received from the binary in 1 s of polling: 0
+sent reinforcer + stimulus; replies in 0.5 s: [] (binary drops both)
+has HilBridgeApparatus any method that SENDS a 'response' message? False
+exit code after HilBridgeApparatus.disconnect(): 0
+  stderr: contingency-hil listening on 127.0.0.1:53969
+  stderr: contingency-hil: client connected from 127.0.0.1:60472
+  stderr: contingency-hil: client requested disconnect
+  stderr: contingency-hil: client disconnected
