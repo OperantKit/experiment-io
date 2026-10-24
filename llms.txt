@@ -7,8 +7,8 @@ experiment-io is part of OperantKit, a set of Python/Rust packages for designing
 ## Install
 
 ```bash
-pip install experiment-io
-pip install 'experiment-io[hw-serial]'   # optional pyserial for real serial ports
+pip install git+https://github.com/OperantKit/experiment-io
+pip install 'experiment-io[hw-serial] @ git+https://github.com/OperantKit/experiment-io'   # optional pyserial for real serial ports
 ```
 
 ## Minimal example
@@ -31,7 +31,7 @@ drive(runner, [VirtualOperandum(0, VirtualSubject(rate_hz=5.0, seed=0), clock)],
 print(runner.state_name, runner.total_responses, len(feeder.calls))  # FINISHED 9 3
 ```
 
-The example needs session-runner (`pip install session-runner`); experiment-io itself has no runtime dependency on other OperantKit packages.
+The example needs session-runner; experiment-io itself has no runtime dependency on other OperantKit packages.
 
 ## Docs
 
@@ -40,8 +40,8 @@ The example needs session-runner (`pip install session-runner`); experiment-io i
 
 ## Related packages
 
-- [session-runner](https://github.com/OperantKit/session-runner): the session driver that `drive` feeds (`pip install session-runner`)
-- [experiment-core](https://github.com/OperantKit/experiment-core): session state machine and event types (`pip install experiment-core`)
-- [contingency-py](https://github.com/OperantKit/contingency-py): reinforcement schedule engine (`pip install contingency-py`)
+- [session-runner](https://github.com/OperantKit/session-runner): the session driver that `drive` feeds
+- [experiment-core](https://github.com/OperantKit/experiment-core): session state machine and event types
+- [contingency-py](https://github.com/OperantKit/contingency-py): reinforcement schedule engine
 - [contingency-rs](https://github.com/OperantKit/contingency-rs): Rust port of the engine; its HIL binary is the other side of `HilBridge`
-- [session-recorder](https://github.com/OperantKit/session-recorder): writes the session events to OKL v1 files (`pip install session-recorder`)
+- [session-recorder](https://github.com/OperantKit/session-recorder): writes the session events to OKL v1 files

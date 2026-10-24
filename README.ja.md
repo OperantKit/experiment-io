@@ -12,6 +12,7 @@ AI のコーディングエージェント向けの案内は [AGENTS.md](AGENTS.
 
 ## インストール
 
+
 Python 3.11 以上が必要です。experiment-io はまだ PyPI に登録されていません。依存するパッケージが無いので、GitHub からそのまま入ります。
 
 ```bash
@@ -19,11 +20,14 @@ pip install git+https://github.com/OperantKit/experiment-io
 pip install pyserial     # 任意: 実際のシリアルポートを開くときだけ
 ```
 
-下の例ではセッションも必要です。セッションは session-runner とその下のパッケージが提供します。これらは依存の解決をせずに入れます。
+下の例ではセッションも必要です。セッションは session-runner とその下のパッケージが提供します。これらも一緒に GitHub から入れます。
 
 ```bash
-G=git+https://github.com/OperantKit
-pip install --no-deps $G/contingency-dsl-py $G/contingency-py $G/experiment-core $G/session-runner
+# PyPI に公開されるまでは、OperantKit の依存と一緒に GitHub から入れる。
+pip install git+https://github.com/OperantKit/contingency-dsl-py \
+            git+https://github.com/OperantKit/contingency-py \
+            git+https://github.com/OperantKit/experiment-core \
+            git+https://github.com/OperantKit/session-runner
 ```
 
 ## 例

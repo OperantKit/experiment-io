@@ -12,6 +12,7 @@ Notes for AI coding agents are in [AGENTS.md](AGENTS.md).
 
 ## Installation
 
+
 Python 3.11 or newer. experiment-io is not on PyPI yet. It has no dependencies of its own and installs directly from GitHub:
 
 ```bash
@@ -19,11 +20,14 @@ pip install git+https://github.com/OperantKit/experiment-io
 pip install pyserial     # optional: only to open a real serial port
 ```
 
-The example below also needs a session, which comes from session-runner and the packages under it. Install them without dependency resolution:
+The example below also needs a session, which comes from session-runner and the packages under it. Install them from GitHub together:
 
 ```bash
-G=git+https://github.com/OperantKit
-pip install --no-deps $G/contingency-dsl-py $G/contingency-py $G/experiment-core $G/session-runner
+# Until the PyPI release, install from GitHub together with its OperantKit dependencies.
+pip install git+https://github.com/OperantKit/contingency-dsl-py \
+            git+https://github.com/OperantKit/contingency-py \
+            git+https://github.com/OperantKit/experiment-core \
+            git+https://github.com/OperantKit/session-runner
 ```
 
 ## Example
