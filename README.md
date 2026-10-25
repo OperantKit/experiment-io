@@ -94,6 +94,17 @@ device -> host   {"op": 0, "ts": 1.25, "kind": "response"}
 host -> device   {"cmd": "reinforcer", "op": 0, "duration": 3.0}
 ```
 
+A pyserial `Serial` can be passed as is, and so can a text stream such as `io.StringIO`. Commands are written as UTF-8 bytes, or as text when the stream is a text stream. With `timeout=0` a read can return a line whose newline has not arrived yet; `SerialOperandum` keeps that part and reads the line once the rest arrives, so a response split across two polls is not lost.
+
+```python
+# requires pyserial and a device on the port
+from experiment_io.hw.backends.serial import SerialOperandum, SerialReinforcer, open_serial
+
+port = open_serial("/dev/ttyACM0")  # pyserial Serial, timeout=0
+lever = SerialOperandum(port, operandum_index=0)
+feeder = SerialReinforcer(port, operandum_index=0)
+```
+
 HIL program, one JSON object per line on its standard input and output:
 
 ```text

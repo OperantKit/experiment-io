@@ -98,3 +98,75 @@ def test_open_serial_raises_helpful_import_error_when_pyserial_missing(
     monkeypatch.setattr(builtins, "__import__", fake_import)
     with pytest.raises(ImportError, match="pyserial"):
         open_serial("/dev/null")
+
+
+class _PySerialLike:
+    """Mimics the pyserial ``Serial`` surface the backend touches.
+
+    ``readline()`` returns bytes and, like pyserial with ``timeout=0``,
+    may return a line cut before its newline when the rest has not
+    arrived yet. ``write()`` rejects ``str`` with the same ``TypeError``
+    pyserial raises.
+    """
+
+    def __init__(self, chunks: list[bytes] | None = None) -> None:
+        self._chunks = list(chunks or [])
+        self.written = b""
+
+    def feed(self, *chunks: bytes) -> None:
+        self._chunks.extend(chunks)
+
+    def readline(self) -> bytes:
+        return self._chunks.pop(0) if self._chunks else b""
+
+    def write(self, data: bytes) -> int:
+        if isinstance(data, str):
+            raise TypeError("unicode strings are not supported, please encode to bytes")
+        self.written += bytes(data)
+        return len(data)
+
+    def flush(self) -> None:
+        pass
+
+
+def _response_line(ts: float) -> bytes:
+    return (json.dumps({"op": 0, "ts": ts, "kind": "response"}) + "\n").encode()
+
+
+def test_serial_reinforcer_writes_bytes_to_pyserial_like_stream() -> None:
+    port = _PySerialLike()
+    SerialReinforcer(port, operandum_index=0).deliver(0.05)
+    assert json.loads(port.written.decode()) == {
+        "cmd": "reinforcer",
+        "op": 0,
+        "duration": 0.05,
+    }
+
+
+def test_serial_operandum_reads_bytes_lines() -> None:
+    port = _PySerialLike([_response_line(0.5), _response_line(1.0)])
+    samples = SerialOperandum(port, operandum_index=0).poll()
+    assert [s.timestamp for s in samples] == [0.5, 1.0]
+
+
+def test_serial_operandum_keeps_a_line_split_across_polls() -> None:
+    line = _response_line(0.5)
+    port = _PySerialLike([line[:10]])
+    op = SerialOperandum(port, operandum_index=0)
+    assert op.poll() == []
+    port.feed(line[10:])
+    samples = op.poll()
+    assert [s.timestamp for s in samples] == [0.5]
+
+
+def test_serial_operandum_keeps_a_split_str_line() -> None:
+    line = _response_line(0.5).decode()
+    port = io.StringIO()
+    op = SerialOperandum(port, operandum_index=0)
+    port.write(line[:7])
+    port.seek(0)
+    assert op.poll() == []
+    pos = port.tell()
+    port.write(line[7:])
+    port.seek(pos)
+    assert [s.timestamp for s in op.poll()] == [0.5]

@@ -6,6 +6,14 @@ accepts any duplex file-like stream (anything implementing
 ``io.StringIO`` and so that production callers can pass either a
 pyserial ``Serial`` instance or a unix pty / TCP socket wrapper.
 
+Both byte streams (pyserial) and text streams work. Reads accept
+``bytes`` or ``str`` lines; writes send UTF-8 ``bytes`` unless the
+stream is a text stream (``io.TextIOBase``) or rejects bytes with
+``TypeError``, in which case ``str`` is written. A non-blocking read
+(pyserial with ``timeout=0``) can return a line cut before its newline;
+the operandum keeps the partial line and completes it on a later poll,
+so a line is parsed only once its newline has arrived.
+
 Wire format
 -----------
 
@@ -23,6 +31,7 @@ Use :func:`open_serial` for the convenience case of attaching to a real
 
 from __future__ import annotations
 
+import io
 import json
 import logging
 from typing import Any, Protocol
@@ -33,8 +42,8 @@ logger = logging.getLogger(__name__)
 
 
 class _LineStream(Protocol):
-    def readline(self) -> str: ...
-    def write(self, data: str) -> Any: ...
+    def readline(self) -> bytes | str: ...
+    def write(self, data: Any) -> Any: ...
     def flush(self) -> None: ...
 
 
@@ -44,12 +53,35 @@ class SerialOperandum:
     def __init__(self, stream: _LineStream, operandum_index: int) -> None:
         self.stream = stream
         self.operandum_index = operandum_index
+        self._partial: bytes | str = ""
+
+    def _next_line(self) -> str | None:
+        """Return the next complete line, or ``None`` when none is ready."""
+        while True:
+            chunk = self.stream.readline()
+            if not chunk:
+                return None
+            if self._partial:
+                if isinstance(chunk, bytes) and isinstance(self._partial, str):
+                    chunk = self._partial.encode("utf-8") + chunk
+                elif isinstance(chunk, str) and isinstance(self._partial, bytes):
+                    chunk = self._partial.decode("utf-8", errors="replace") + chunk
+                else:
+                    chunk = self._partial + chunk  # type: ignore[operator]
+                self._partial = ""
+            newline = b"\n" if isinstance(chunk, bytes) else "\n"
+            if not chunk.endswith(newline):  # type: ignore[arg-type]
+                self._partial = chunk
+                return None
+            if isinstance(chunk, bytes):
+                return chunk.decode("utf-8", errors="replace")
+            return chunk
 
     def poll(self) -> list[ResponseSample]:
         samples: list[ResponseSample] = []
         while True:
-            line = self.stream.readline()
-            if not line:
+            line = self._next_line()
+            if line is None:
                 break
             line = line.strip()
             if not line:
@@ -94,6 +126,17 @@ class SerialReinforcer:
     def __init__(self, stream: _LineStream, operandum_index: int) -> None:
         self.stream = stream
         self.operandum_index = operandum_index
+        self._text = isinstance(stream, io.TextIOBase)
+
+    def _write_line(self, line: str) -> None:
+        if self._text:
+            self.stream.write(line)
+            return
+        try:
+            self.stream.write(line.encode("utf-8"))
+        except TypeError:
+            self._text = True
+            self.stream.write(line)
 
     def deliver(self, duration: float) -> None:
         cmd = {
@@ -101,7 +144,7 @@ class SerialReinforcer:
             "op": self.operandum_index,
             "duration": float(duration),
         }
-        self.stream.write(json.dumps(cmd) + "\n")
+        self._write_line(json.dumps(cmd) + "\n")
         flush = getattr(self.stream, "flush", None)
         if callable(flush):
             flush()

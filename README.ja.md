@@ -94,6 +94,17 @@ device -> host   {"op": 0, "ts": 1.25, "kind": "response"}
 host -> device   {"cmd": "reinforcer", "op": 0, "duration": 3.0}
 ```
 
+pyserial の `Serial` をそのまま渡せます。`io.StringIO` のような文字列のストリームも渡せます。命令は UTF-8 のバイト列で書き、文字列のストリームには文字列で書きます。`timeout=0` では、改行がまだ届いていない途中の行が読めることがあります。`SerialOperandum` はその途中の分を取っておき、残りが届いてから 1 行として読むので、2 回の poll に分かれた反応も失われません。
+
+```python
+# requires pyserial and a device on the port
+from experiment_io.hw.backends.serial import SerialOperandum, SerialReinforcer, open_serial
+
+port = open_serial("/dev/ttyACM0")  # pyserial の Serial、timeout=0
+lever = SerialOperandum(port, operandum_index=0)
+feeder = SerialReinforcer(port, operandum_index=0)
+```
+
 HIL のプログラム。標準入力と標準出力の 1 行に JSON オブジェクト 1 つ:
 
 ```text
