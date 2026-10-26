@@ -70,7 +70,7 @@ print(runner.state_name, runner.component_responses, [len(f.calls) for f in feed
 
 | 部分 | 名前 | 役目 |
 |---|---|---|
-| ループ | `drive`、`SessionDriverLike` | `SessionDriverLike` のメソッドを持つセッション（ふつうは `session_runner.SessionRunner`）を、終わるまで装置から動かします。`max_duration` と `max_steps` でループの上限を決めます |
+| ループ | `drive`、`SessionDriverLike` | `SessionDriverLike` のメソッドを持つセッション（ふつうは `session_runner.SessionRunner`）を、終わるまで装置から動かします。`max_duration` と `max_steps` でループの上限を決め、`on_response` は各反応をセッションの時刻とともに受け取ります |
 | インタフェース | `Clock`、`Operandum`、`Reinforcer`、`ResponseSample`（`experiment_io.hw`） | 装置の実装が備えるべきもの |
 | 仮想の装置 | `ManualClock`、`VirtualOperandum`、`MultiVirtualOperandum`、`RecordingReinforcer` | 模擬の時間、模擬のオペランダム、提示を 1 回ずつ記録する強化子の装置 |
 | 仮想被験体 | `VirtualSubject`、`MultiVirtualSubject` | ポアソン型の反応者（反応間時間が指数分布）。複数版はオペランダムごとに 1 つ |
@@ -117,7 +117,7 @@ program -> host  {"event": "ready", "ts": 0.0}
                  {"event": "error", "msg": "..."}
 ```
 
-時刻は装置自身の時計の秒です。`HilBridge` に起動するプログラムを渡すには、`binary=` か環境変数 `OPERANTKIT_HIL_BINARY` を使います。
+時刻（`ts`）は装置自身の時計の秒です。[セッションの時刻](#セッションの時刻) を参照してください。`HilBridge` に起動するプログラムを渡すには、`binary=` か環境変数 `OPERANTKIT_HIL_BINARY` を使います。
 
 ```python
 # requires a HIL program that speaks the protocol above
@@ -126,12 +126,28 @@ from experiment_io.hw.backends.hil_bridge import HilBridge
 bridge = HilBridge(binary="/path/to/hil-program")
 ```
 
+### セッションの時刻
+
+セッションは `drive` に渡した `clock` だけで進みます。`drive` は反応をセッションに渡すとき、その瞬間の `clock()` を時刻にします。装置の `ts` は `ResponseSample.timestamp` に記録として残り、セッションの時刻にはなりません。装置の行がホストに届くのは反応の 1〜7 ミリ秒後（Teensy 4.1 と USB で測った値）で、そのときには `drive` がホストの時計で tick を既に進めています。装置の時刻を使うとセッションの時刻が戻り、スケジュールが `ScheduleStateError: Non-monotonic time` で止まります。そのため、装置の時計をホストの時計に合わせる必要はありません。
+
+装置の時刻を残すには `on_response` を渡します。各サンプルと、それに付けたセッションの時刻を受け取ります。
+
+```python
+# requires the runner, lever and feeder from the examples above
+log = []
+drive(runner, [lever], [feeder], time.monotonic,
+      on_response=lambda sample, t: log.append((sample.timestamp, t)))
+```
+
+仮想のオペランダムは自分で `clock` を進めるので、2 つの時刻は同じです。
+
 ## 制限
 
 - まだ PyPI に登録されておらず、API は変わることがあります。
 - ファームウェアは配布していません。シリアルの装置は上の JSON の行を話す必要があり、そのプログラムは自分で書きます。
 - [contingency-rs](https://github.com/OperantKit/contingency-rs) の `contingency-hil` は TCP のサーバで、メッセージの形式も違うため、`HilBridge` からはそのままでは動かせません。`binary=` も `OPERANTKIT_HIL_BINARY` も無いとき、`HilBridge` は組み込みの相対パスを使いますが、contingency-rs はそこにプログラムを作りません。
 - 実時間の時計では、`drive` は `time.sleep` で待ち、既定で 1 ミリ秒ごとに読みます（`poll_interval`）。ハードウェアでの時間の精度は測っていません。
+- 実時間の時計では、`drive` は強化子への接近中は読みません。接近中に装置が送った反応は接近が終わったときに読まれ、その時点のセッションの時刻が付き、スケジュールに数えられます。
 - 仮想被験体はモデルです。書いたスケジュールどおりにプログラムが強化子を提示することは示しますが、動物がどう振る舞うかは示しません。
 
 ## 開発

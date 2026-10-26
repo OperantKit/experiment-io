@@ -70,7 +70,7 @@ The faster responder (2 responses/s) produced 9 of the 10 reinforcers, each deli
 
 | Part | Names | What it does |
 |---|---|---|
-| Loop | `drive`, `SessionDriverLike` | Runs any session object with the `SessionDriverLike` methods (typically `session_runner.SessionRunner`) from the devices until it finishes; `max_duration` and `max_steps` bound the loop |
+| Loop | `drive`, `SessionDriverLike` | Runs any session object with the `SessionDriverLike` methods (typically `session_runner.SessionRunner`) from the devices until it finishes; `max_duration` and `max_steps` bound the loop, and `on_response` receives each response with its session time |
 | Interfaces | `Clock`, `Operandum`, `Reinforcer`, `ResponseSample` (`experiment_io.hw`) | What a device backend has to provide |
 | Virtual devices | `ManualClock`, `VirtualOperandum`, `MultiVirtualOperandum`, `RecordingReinforcer` | Simulated time, simulated operanda, and a reinforcer device that records each delivery |
 | Virtual subjects | `VirtualSubject`, `MultiVirtualSubject` | Poisson responders (exponential interresponse times), one per operandum in the multi version |
@@ -117,7 +117,7 @@ program -> host  {"event": "ready", "ts": 0.0}
                  {"event": "error", "msg": "..."}
 ```
 
-Timestamps are seconds from the device's own clock. Give `HilBridge` the program to start with `binary=` or the `OPERANTKIT_HIL_BINARY` environment variable:
+Timestamps (`ts`) are seconds from the device's own clock; see [Session time](#session-time). Give `HilBridge` the program to start with `binary=` or the `OPERANTKIT_HIL_BINARY` environment variable:
 
 ```python
 # requires a HIL program that speaks the protocol above
@@ -126,12 +126,28 @@ from experiment_io.hw.backends.hil_bridge import HilBridge
 bridge = HilBridge(binary="/path/to/hil-program")
 ```
 
+### Session time
+
+The session runs on the `clock` given to `drive`, and on nothing else. `drive` hands each response to the session with `clock()` read at that moment. The device's `ts` stays in `ResponseSample.timestamp` as a record and does not become session time: a line reaches the host 1 to 7 ms after the response (measured on a Teensy 4.1 over USB), after `drive` has already stamped a tick with the host clock, so the device time would move session time backwards and the schedule would stop with `ScheduleStateError: Non-monotonic time`. The device's clock therefore needs no alignment with the host's.
+
+To keep the device's time, pass `on_response`; it receives each sample with the session time it was given:
+
+```python
+# requires the runner, lever and feeder from the examples above
+log = []
+drive(runner, [lever], [feeder], time.monotonic,
+      on_response=lambda sample, t: log.append((sample.timestamp, t)))
+```
+
+Virtual operanda advance `clock` themselves, so for them the two times are equal.
+
 ## Limitations
 
 - Not on PyPI yet, and the API can still change.
 - No firmware is distributed. A serial device has to speak the JSON lines above; you write that program yourself.
 - The `contingency-hil` program of [contingency-rs](https://github.com/OperantKit/contingency-rs) is a TCP server with a different message format, so `HilBridge` cannot drive it as is. Without `binary=` or `OPERANTKIT_HIL_BINARY`, `HilBridge` falls back to a built-in relative path that contingency-rs does not build.
 - With a real clock, `drive` waits with `time.sleep` and polls every 1 ms by default (`poll_interval`). Hardware timing has not been measured.
+- With a real clock, `drive` does not poll during reinforcer access. Responses a device sends during access are read when access ends, are given the session time of that moment, and count toward the schedule.
 - The virtual subjects are models. They show that the program delivers the schedule you wrote, not what an animal will do.
 
 ## Development

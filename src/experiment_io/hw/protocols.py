@@ -16,7 +16,10 @@ class ResponseSample:
         Zero-based index of the operandum the response was made on.
     timestamp:
         Monotonic seconds reported by the device's hardware (or
-        ManualClock under test).
+        ManualClock under test). A record of when the device saw the
+        response: :func:`experiment_io.drive` gives the session the
+        host's ``clock()`` at hand-over instead, because the device's
+        clock and the host's are different clocks.
     metadata:
         Optional dict of arbitrary backend-specific extras (e.g.
         Arduino pin number, raw bytes, etc.).

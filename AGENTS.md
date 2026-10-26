@@ -16,6 +16,7 @@ The session itself comes from session-runner (`SessionRunner`), which drives exp
 - Concurrent schedules: each response is routed with `handle_response_on(index, ...)`, and the reinforcer is delivered by the device paired with the operandum that produced it.
 - With `ManualClock` the loop advances virtual time instead of sleeping; when no response arrives it calls `handle_tick`, so time-based schedules and time limits are evaluated. `max_duration` and `max_steps` bound the loop.
 - `pyserial` is optional and imported lazily; serial backends accept any stream with `readline` / `write` / `flush`, so tests can use `io.StringIO`.
+- Session time is the host `clock` alone: `drive` gives each response `clock()` at hand-over, and the device's own time stays in `ResponseSample.timestamp` (pass `on_response` to record it). The device's clock does not have to be aligned with the host's.
 
 ## Why not a 50-line hand-written hardware loop?
 
@@ -31,6 +32,7 @@ A polling loop written for one device mixes timing, routing, and device code. Th
 
 - Do not pass operanda and reinforcers of different lengths; `reinforcers[i]` pairs with `operanda[i]`.
 - Do not use a wall-clock time source in tests; use `ManualClock` and seeded virtual subjects.
+- Do not hand a device's `ts` to the session runner as the response time; the device's line arrives after the host has already ticked past it, and the schedule stops with `ScheduleStateError: Non-monotonic time`.
 - Do not change the serial or HIL wire format (newline-delimited JSON) in one place only; device firmware and HIL programs written against it read the same messages.
 - Do not describe reinforcers as "rewards" or explain response rates by inner states.
 

@@ -33,6 +33,8 @@ print(runner.state_name, runner.total_responses, len(feeder.calls))  # FINISHED 
 
 The example needs session-runner; experiment-io itself has no runtime dependency on other OperantKit packages.
 
+Session time is the host clock passed to `drive`: each response is given `clock()` when it is handed to the session, and a serial or HIL device's own timestamp stays in `ResponseSample.timestamp` (`on_response` receives both), so device and host clocks need no alignment.
+
 ## Docs
 
 - [README](https://github.com/OperantKit/experiment-io/blob/main/README.md): backends, 30-second example, why not to hand-roll a hardware loop, wire formats

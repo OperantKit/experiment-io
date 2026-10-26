@@ -16,8 +16,9 @@ Device -> host (one JSON object per line on stdout)::
     {"event": "error", "msg": "..."}
 
 Timestamps are monotonic seconds reported by the device's hardware
-clock. The host is expected to forward these verbatim into the
-session runner.
+clock. They are kept in ``ResponseSample.timestamp`` as a record;
+:func:`experiment_io.drive` gives the session the host's ``clock()``
+at the moment it hands the response over, not this device time.
 
 This module never imports the Rust binary at module-load time. Tests
 inject a fake ``Popen``-like object via ``HilBridge(process=...)``.
