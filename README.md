@@ -80,6 +80,7 @@ The faster responder (2 responses/s) produced 9 of the 10 reinforcers, each deli
 | | `MatchingSubject` | Shifts responding toward the operandum with the higher local reinforcement rate (melioration; Herrnstein & Vaughan, 1980) |
 | Serial | `SerialOperandum`, `SerialReinforcer`, `open_serial` (`experiment_io.hw.backends.serial`) | A device that speaks newline-delimited JSON over any stream with `readline` / `write` / `flush`; `open_serial` opens a real port with pyserial |
 | HIL | `HilBridge` (`experiment_io.hw.backends.hil_bridge`) | Starts a HIL program and talks to it over its standard input and output |
+| Real-time thread | `time_constraint` (`experiment_io.realtime`) | A context manager that runs the calling thread under the macOS time-constraint policy (period = the `poll_interval` you pass, computation = period / 5) and restores the standard policy on exit; elsewhere, or if the call fails, it changes nothing and its `RealtimeResult` says why |
 
 Virtual subjects that serve several operanda do not respond during reinforcer access.
 
@@ -147,6 +148,7 @@ Virtual operanda advance `clock` themselves, so for them the two times are equal
 - No firmware is distributed. A serial device has to speak the JSON lines above; you write that program yourself.
 - The `contingency-hil` program of [contingency-rs](https://github.com/OperantKit/contingency-rs) is a TCP server with a different message format, so `HilBridge` cannot drive it as is. Without `binary=` or `OPERANTKIT_HIL_BINARY`, `HilBridge` falls back to a built-in relative path that contingency-rs does not build.
 - With a real clock, `drive` waits with `time.sleep` and polls every 1 ms by default (`poll_interval`). Hardware timing has not been measured.
+- The macOS time-constraint thread (`experiment_io.realtime`) needs no administrator rights, but the kernel puts a thread that runs past its computation time back on the standard policy.
 - With a real clock, `drive` does not poll during reinforcer access. Responses a device sends during access are read when access ends, are given the session time of that moment, and count toward the schedule.
 - The virtual subjects are models. They show that the program delivers the schedule you wrote, not what an animal will do.
 

@@ -80,6 +80,7 @@ print(runner.state_name, runner.component_responses, [len(f.calls) for f in feed
 | | `MatchingSubject` | 局所的な強化率が高いオペランダムへ反応を移します（逐次改良; Herrnstein & Vaughan, 1980） |
 | シリアル | `SerialOperandum`、`SerialReinforcer`、`open_serial`（`experiment_io.hw.backends.serial`） | `readline` / `write` / `flush` を持つ任意のストリームで、改行区切りの JSON を話す装置。`open_serial` は pyserial で実際のポートを開きます |
 | HIL | `HilBridge`（`experiment_io.hw.backends.hil_bridge`） | HIL のプログラムを起動し、その標準入力と標準出力でやりとりします |
+| 時間制約スレッド | `time_constraint`（`experiment_io.realtime`） | 呼び出したスレッドを macOS の時間制約ポリシー（周期 = 渡した `poll_interval`、計算時間 = 周期の 1/5）で動かし、抜けるときに標準のポリシーへ戻す context manager。macOS 以外や呼び出しに失敗したときは何も変えず、返す `RealtimeResult` に理由が入ります |
 
 複数のオペランダムを受け持つ仮想被験体は、強化子への接近中は反応しません。
 
@@ -147,6 +148,7 @@ drive(runner, [lever], [feeder], time.monotonic,
 - ファームウェアは配布していません。シリアルの装置は上の JSON の行を話す必要があり、そのプログラムは自分で書きます。
 - [contingency-rs](https://github.com/OperantKit/contingency-rs) の `contingency-hil` は TCP のサーバで、メッセージの形式も違うため、`HilBridge` からはそのままでは動かせません。`binary=` も `OPERANTKIT_HIL_BINARY` も無いとき、`HilBridge` は組み込みの相対パスを使いますが、contingency-rs はそこにプログラムを作りません。
 - 実時間の時計では、`drive` は `time.sleep` で待ち、既定で 1 ミリ秒ごとに読みます（`poll_interval`）。ハードウェアでの時間の精度は測っていません。
+- macOS の時間制約スレッド（`experiment_io.realtime`）は管理者権限なしで取れますが、計算時間を超えて動き続けたスレッドはカーネルが標準のポリシーへ戻します。
 - 実時間の時計では、`drive` は強化子への接近中は読みません。接近中に装置が送った反応は接近が終わったときに読まれ、その時点のセッションの時刻が付き、スケジュールに数えられます。
 - 仮想被験体はモデルです。書いたスケジュールどおりにプログラムが強化子を提示することは示しますが、動物がどう振る舞うかは示しません。
 
