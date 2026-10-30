@@ -140,6 +140,8 @@ drive(runner, [lever], [feeder], time.monotonic,
       on_response=lambda sample, t: log.append((sample.timestamp, t)))
 ```
 
+When the driver's `handle_response` / `handle_response_on` accepts a `device_time` keyword, as `session_runner.SessionRunner` does, `drive` also passes the device's time as `device_time=sample.timestamp`, and it reaches the session's events (with session-recorder's `OklSink`, the `device_time` column of `response` lines). Drivers with only the two-argument methods are called as before.
+
 Virtual operanda advance `clock` themselves, so for them the two times are equal.
 
 ## Limitations

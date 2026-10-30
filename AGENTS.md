@@ -16,7 +16,7 @@ The session itself comes from session-runner (`SessionRunner`), which drives exp
 - Concurrent schedules: each response is routed with `handle_response_on(index, ...)`, and the reinforcer is delivered by the device paired with the operandum that produced it.
 - With `ManualClock` the loop advances virtual time instead of sleeping; when no response arrives it calls `handle_tick`, so time-based schedules and time limits are evaluated. `max_duration` and `max_steps` bound the loop.
 - `pyserial` is optional and imported lazily; serial backends accept any stream with `readline` / `write` / `flush`, so tests can use `io.StringIO`.
-- Session time is the host `clock` alone: `drive` gives each response `clock()` at hand-over, and the device's own time stays in `ResponseSample.timestamp` (pass `on_response` to record it). The device's clock does not have to be aligned with the host's.
+- Session time is the host `clock` alone: `drive` gives each response `clock()` at hand-over, and the device's own time stays in `ResponseSample.timestamp` (pass `on_response` to record it; a driver whose response methods take a `device_time` keyword, such as `SessionRunner`, also receives it there). The device's clock does not have to be aligned with the host's.
 
 ## Why not a 50-line hand-written hardware loop?
 

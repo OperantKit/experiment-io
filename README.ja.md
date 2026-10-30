@@ -140,6 +140,8 @@ drive(runner, [lever], [feeder], time.monotonic,
       on_response=lambda sample, t: log.append((sample.timestamp, t)))
 ```
 
+セッションの `handle_response` / `handle_response_on` が `device_time` キーワードを受け付けるとき（`session_runner.SessionRunner` は受け付けます）、`drive` は装置の時刻も `device_time=sample.timestamp` として渡し、それがセッションの出来事に入ります（session-recorder の `OklSink` なら `response` 行の `device_time` 列）。2 引数のメソッドだけを持つセッションは、これまでどおりに呼ばれます。
+
 仮想のオペランダムは自分で `clock` を進めるので、2 つの時刻は同じです。
 
 ## 制限

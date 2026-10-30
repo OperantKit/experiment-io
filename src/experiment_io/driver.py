@@ -21,6 +21,7 @@ import dependency on ``session-runner``.
 
 from __future__ import annotations
 
+import inspect
 import time
 from collections import deque
 from collections.abc import Callable, Sequence
@@ -93,8 +94,12 @@ def drive(
     with the host clock, so the device time would move session time
     backwards. The device time stays in ``sample.timestamp`` as a record;
     pass ``on_response`` to receive each sample together with the session
-    time it was given. Virtual operanda advance ``clock`` themselves, so
-    for them the two times are equal.
+    time it was given. If the driver's response method accepts a
+    ``device_time`` keyword (``session_runner.SessionRunner`` does), the
+    device time is also passed as ``device_time=sample.timestamp`` so it
+    lands in the session record; drivers with the two-argument methods of
+    :class:`SessionDriverLike` are called as before. Virtual operanda
+    advance ``clock`` themselves, so for them the two times are equal.
 
     Parameters
     ----------
@@ -132,6 +137,7 @@ def drive(
 
     is_concurrent_resolved = _resolve_concurrent(driver, operanda, is_concurrent)
     get_last_op = _resolve_last_op_getter(driver, last_reinforced_operandum)
+    respond = _responder(driver, is_concurrent_resolved)
 
     try:
         session_start = clock()
@@ -154,13 +160,13 @@ def drive(
             routed_any = False
             if pending:
                 routed_any = True
-                _route(driver, pending, clock, is_concurrent_resolved, on_response)
+                _route(driver, respond, pending, clock, on_response)
             else:
                 for op in operanda:
                     pending.extend(op.poll())
                     if pending:
                         routed_any = True
-                        _route(driver, pending, clock, is_concurrent_resolved, on_response)
+                        _route(driver, respond, pending, clock, on_response)
                     if driver.is_reinforcing or driver.is_finished:
                         break
 
@@ -213,21 +219,50 @@ def _resolve_last_op_getter(
     return _default
 
 
+def _accepts_device_time(method: Callable[..., object]) -> bool:
+    try:
+        params = inspect.signature(method).parameters.values()
+    except (TypeError, ValueError):
+        return False
+    return any(
+        p.kind is inspect.Parameter.VAR_KEYWORD
+        or (
+            p.name == "device_time"
+            and p.kind in (inspect.Parameter.KEYWORD_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+        )
+        for p in params
+    )
+
+
+def _responder(
+    driver: SessionDriverLike, is_concurrent: bool
+) -> Callable[[ResponseSample, float], None]:
+    """Return the call that hands one sample to ``driver`` at session time ``now``."""
+    if is_concurrent:
+        if _accepts_device_time(driver.handle_response_on):
+            return lambda sample, now: driver.handle_response_on(  # type: ignore[call-arg]
+                sample.operandum_index, now, device_time=sample.timestamp
+            )
+        return lambda sample, now: driver.handle_response_on(sample.operandum_index, now)
+    if _accepts_device_time(driver.handle_response):
+        return lambda sample, now: driver.handle_response(  # type: ignore[call-arg]
+            now, device_time=sample.timestamp
+        )
+    return lambda sample, now: driver.handle_response(now)
+
+
 def _route(
     driver: SessionDriverLike,
+    respond: Callable[[ResponseSample, float], None],
     pending: deque[ResponseSample],
     clock: Callable[[], float],
-    is_concurrent: bool,
     on_response: Callable[[ResponseSample, float], None] | None,
 ) -> None:
     """Hand queued samples to ``driver`` at host time until it reinforces or finishes."""
     while pending and not (driver.is_reinforcing or driver.is_finished):
         sample = pending.popleft()
         now = clock()
-        if is_concurrent:
-            driver.handle_response_on(sample.operandum_index, now)
-        else:
-            driver.handle_response(now)
+        respond(sample, now)
         if on_response is not None:
             on_response(sample, now)
 
