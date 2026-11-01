@@ -80,6 +80,7 @@ print(runner.state_name, runner.component_responses, [len(f.calls) for f in feed
 | | `MatchingSubject` | 局所的な強化率が高いオペランダムへ反応を移します（逐次改良; Herrnstein & Vaughan, 1980） |
 | シリアル | `SerialOperandum`、`SerialReinforcer`、`open_serial`（`experiment_io.hw.backends.serial`） | `readline` / `write` / `flush` を持つ任意のストリームで、改行区切りの JSON を話す装置。`open_serial` は pyserial で実際のポートを開きます |
 | HIL | `HilBridge`（`experiment_io.hw.backends.hil_bridge`） | HIL のプログラムを起動し、その標準入力と標準出力でやりとりします |
+| 機器での判断 | `drive_device`、`device_schedule_from_spec`、`check_decision_clock`、`probe_fixture`（`experiment_io.device`） | 随伴性を自分で判断する機器に単一のスケジュールを載せ、決めた数の強化子まで動かし、機器の報告を受け取ります。[機器での判断](#機器での判断) を参照 |
 | 時間制約スレッド | `time_constraint`（`experiment_io.realtime`） | 呼び出したスレッドを macOS の時間制約ポリシー（周期 = 渡した `poll_interval`、計算時間 = 周期の 1/5）で動かし、抜けるときに標準のポリシーへ戻す context manager。macOS 以外や呼び出しに失敗したときは何も変えず、返す `RealtimeResult` に理由が入ります |
 
 複数のオペランダムを受け持つ仮想被験体は、強化子への接近中は反応しません。
@@ -143,6 +144,22 @@ drive(runner, [lever], [feeder], time.monotonic,
 セッションの `handle_response` / `handle_response_on` が `device_time` キーワードを受け付けるとき（`session_runner.SessionRunner` は受け付けます）、`drive` は装置の時刻も `device_time=sample.timestamp` として渡し、それがセッションの出来事に入ります（session-recorder の `OklSink` なら `response` 行の `device_time` 列）。2 引数のメソッドだけを持つセッションは、これまでどおりに呼ばれます。
 
 仮想のオペランダムは自分で `clock` を進めるので、2 つの時刻は同じです。
+
+### 機器での判断
+
+随伴性をどこで判断するかは研究者が選びます。ホスト（`drive` がセッションを進める）か、機器（`drive_device`）かです。どちらかへ勝手に切り替わることはありません。機器とは JSON の行でやりとりします:
+
+```text
+host -> device   {"cmd": "load", "schedule": {"type": "FR", "params": {"n": 5}},
+                  "reinforcer": {"op": 0, "duration": 0.05}, "stop_after": {"reinforcers": 20}}
+                 {"cmd": "start"}   {"cmd": "stop"}   {"cmd": "report"}
+device -> host   {"kind": "loaded", "firmware": "..."}   {"kind": "error", "code": "..."}
+                 {"kind": "started", "ts": 12.5, "seq": 0}
+                 {"kind": "response", "op": 0, "ts": 13.1, "seq": 1}
+                 {"kind": "reinforcer_start", ...}   {"kind": "reinforcer_end", ...}   {"kind": "stopped", ...}
+```
+
+`drive_device` はスケジュールを `{type, params}` の形（適合試験の fixture と同じ形）で受け取り、ポートを開く前に検めます。通るのは `SUPPORTED_ON_DEVICE` の単一スケジュールだけで、乱数を使うもの（`SEEDED_ON_DEVICE`）には `seed` が要ります。通らないスケジュールは `DeviceUnsupportedError` になり、そのメッセージの最後にホストで動かす方法が書かれます。セッションの時刻は機器の時計です。`on_start(session_start, firmware)` は `started` の `ts` を受け取り、`on_event` は反応と強化子の始まり・終わりを機器の `ts` 付きで 1 つずつ受け取ります。式から形への変換とログの書き込みは、呼び出し側が行います。
 
 ## 制限
 

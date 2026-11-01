@@ -80,6 +80,7 @@ The faster responder (2 responses/s) produced 9 of the 10 reinforcers, each deli
 | | `MatchingSubject` | Shifts responding toward the operandum with the higher local reinforcement rate (melioration; Herrnstein & Vaughan, 1980) |
 | Serial | `SerialOperandum`, `SerialReinforcer`, `open_serial` (`experiment_io.hw.backends.serial`) | A device that speaks newline-delimited JSON over any stream with `readline` / `write` / `flush`; `open_serial` opens a real port with pyserial |
 | HIL | `HilBridge` (`experiment_io.hw.backends.hil_bridge`) | Starts a HIL program and talks to it over its standard input and output |
+| Decision on the device | `drive_device`, `device_schedule_from_spec`, `check_decision_clock`, `probe_fixture` (`experiment_io.device`) | Loads an atomic schedule onto a device that decides the contingency itself, runs it until a number of reinforcers, and fetches the device's report; see [Decision on the device](#decision-on-the-device) |
 | Real-time thread | `time_constraint` (`experiment_io.realtime`) | A context manager that runs the calling thread under the macOS time-constraint policy (period = the `poll_interval` you pass, computation = period / 5) and restores the standard policy on exit; elsewhere, or if the call fails, it changes nothing and its `RealtimeResult` says why |
 
 Virtual subjects that serve several operanda do not respond during reinforcer access.
@@ -143,6 +144,22 @@ drive(runner, [lever], [feeder], time.monotonic,
 When the driver's `handle_response` / `handle_response_on` accepts a `device_time` keyword, as `session_runner.SessionRunner` does, `drive` also passes the device's time as `device_time=sample.timestamp`, and it reaches the session's events (with session-recorder's `OklSink`, the `device_time` column of `response` lines). Drivers with only the two-argument methods are called as before.
 
 Virtual operanda advance `clock` themselves, so for them the two times are equal.
+
+### Decision on the device
+
+Where the contingency is decided is the researcher's choice: on the host (`drive` steps the session) or on the device (`drive_device`). Nothing switches between them on its own. The device speaks JSON lines:
+
+```text
+host -> device   {"cmd": "load", "schedule": {"type": "FR", "params": {"n": 5}},
+                  "reinforcer": {"op": 0, "duration": 0.05}, "stop_after": {"reinforcers": 20}}
+                 {"cmd": "start"}   {"cmd": "stop"}   {"cmd": "report"}
+device -> host   {"kind": "loaded", "firmware": "..."}   {"kind": "error", "code": "..."}
+                 {"kind": "started", "ts": 12.5, "seq": 0}
+                 {"kind": "response", "op": 0, "ts": 13.1, "seq": 1}
+                 {"kind": "reinforcer_start", ...}   {"kind": "reinforcer_end", ...}   {"kind": "stopped", ...}
+```
+
+`drive_device` takes the schedule as a `{type, params}` spec (the conformance fixture form) and checks it before the port is opened: only the atomic schedules in `SUPPORTED_ON_DEVICE` pass, and the random ones (`SEEDED_ON_DEVICE`) need a `seed`. A refused schedule raises `DeviceUnsupportedError` with a message that ends in how to run it on the host instead. Session time is the device clock: `on_start(session_start, firmware)` receives the `ts` of `started`, and `on_event` receives each response and reinforcer edge with the device's `ts`. Turning an expression into a spec and writing a log are left to the caller.
 
 ## Limitations
 
