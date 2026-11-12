@@ -22,15 +22,31 @@ from experiment_io.hw.protocols import ResponseSample
 
 
 class _Device:
-    """Returns one response per poll, stamped with a device clock far from the host's."""
+    """Responses stamped with a device clock far from the host's.
 
-    def __init__(self, operandum_index: int, device_times: list[float]) -> None:
+    The ``i``-th response becomes readable at host time ``first_at + i * gap``.
+    The gap is longer than reinforcer access, so every response arrives
+    while the session is running. ``clock`` is attached by the caller.
+    """
+
+    def __init__(
+        self,
+        operandum_index: int,
+        device_times: list[float],
+        *,
+        first_at: float = 0.1,
+        gap: float = 0.1,
+    ) -> None:
         self.operandum_index = operandum_index
         self._pending = list(device_times)
+        self._next_at = first_at
+        self._gap = gap
+        self.clock: ManualClock | None = None
 
     def poll(self) -> list[ResponseSample]:
-        if not self._pending:
+        if not self._pending or self.clock is None or self.clock() < self._next_at:
             return []
+        self._next_at += self._gap
         ts = self._pending.pop(0)
         return [ResponseSample(operandum_index=self.operandum_index, timestamp=ts)]
 
@@ -97,6 +113,8 @@ _DEVICE_TIMES = [324419.687, 324420.001, 324420.5]
 
 def _drive(driver: SessionDriverLike, operanda: list[_Device], *, concurrent: bool) -> ManualClock:
     clock = ManualClock()
+    for op in operanda:
+        op.clock = clock
     drive(
         driver,
         operanda,
@@ -121,7 +139,11 @@ def test_single_component_driver_receives_device_time() -> None:
 @pytest.mark.unit
 def test_concurrent_driver_receives_device_time_with_the_operandum() -> None:
     driver = _DeviceTimeDriver(stop_after=2)
-    _drive(driver, [_Device(0, [10.0]), _Device(1, [20.0])], concurrent=True)
+    _drive(
+        driver,
+        [_Device(0, [10.0], first_at=0.1), _Device(1, [20.0], first_at=0.3)],
+        concurrent=True,
+    )
     assert [(op, dt) for op, _, dt in driver.calls] == [(0, 10.0), (1, 20.0)]
 
 
@@ -153,7 +175,9 @@ def test_session_runner_events_carry_device_time() -> None:
         clock=clock,
     )
     runner.start(start_time=clock())
-    drive(runner, [_Device(0, _DEVICE_TIMES)], [_Reinforcer()], clock, reinforcer_duration=0.05)
+    device = _Device(0, _DEVICE_TIMES)
+    device.clock = clock
+    drive(runner, [device], [_Reinforcer()], clock, reinforcer_duration=0.05)
     responses = [e for e in runner.sink.events if isinstance(e, ResponseEvent)]
     assert [e.device_time for e in responses] == _DEVICE_TIMES
     assert all(e.timestamp < 1.0 for e in responses)

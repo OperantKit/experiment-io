@@ -145,6 +145,8 @@ drive(runner, [lever], [feeder], time.monotonic,
 
 仮想のオペランダムは自分で `clock` を進めるので、2 つの時刻は同じです。
 
+強化子への接近中も、`drive` は `poll_interval` ごとに装置を読み、届いた反応をその時点でセッションに渡します。`end_reinforcement` の前にもう一度読むので、接近中の反応は記録の `reinforcer_start` と `reinforcer_end` のあいだに並びます。セッションはそれを記録しますが、スケジュールには数えません。仮想被験体は接近中は反応しません。
+
 ### 機器での判断
 
 随伴性をどこで判断するかは研究者が選びます。ホスト（`drive` がセッションを進める）か、機器（`drive_device`）かです。どちらかへ勝手に切り替わることはありません。機器とは JSON の行でやりとりします:
@@ -168,7 +170,6 @@ device -> host   {"kind": "loaded", "firmware": "..."}   {"kind": "error", "code
 - [contingency-rs](https://github.com/OperantKit/contingency-rs) の `contingency-hil` は TCP のサーバで、メッセージの形式も違うため、`HilBridge` からはそのままでは動かせません。`binary=` も `OPERANTKIT_HIL_BINARY` も無いとき、`HilBridge` は組み込みの相対パスを使いますが、contingency-rs はそこにプログラムを作りません。
 - 実時間の時計では、`drive` は `time.sleep` で待ち、既定で 1 ミリ秒ごとに読みます（`poll_interval`）。ハードウェアでの時間の精度は測っていません。
 - macOS の時間制約スレッド（`experiment_io.realtime`）は管理者権限なしで取れますが、計算時間を超えて動き続けたスレッドはカーネルが標準のポリシーへ戻します。
-- 実時間の時計では、`drive` は強化子への接近中は読みません。接近中に装置が送った反応は接近が終わったときに読まれ、その時点のセッションの時刻が付き、スケジュールに数えられます。
 - 仮想被験体はモデルです。書いたスケジュールどおりにプログラムが強化子を提示することは示しますが、動物がどう振る舞うかは示しません。
 
 ## 開発

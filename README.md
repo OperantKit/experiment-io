@@ -145,6 +145,8 @@ When the driver's `handle_response` / `handle_response_on` accepts a `device_tim
 
 Virtual operanda advance `clock` themselves, so for them the two times are equal.
 
+During reinforcer access `drive` keeps polling every `poll_interval` and hands each arriving response to the session at that moment, polling once more before `end_reinforcement`, so the response lands between `reinforcer_start` and `reinforcer_end` in the record. The session records it without counting it toward the schedule. Virtual subjects do not respond during access.
+
 ### Decision on the device
 
 Where the contingency is decided is the researcher's choice: on the host (`drive` steps the session) or on the device (`drive_device`). Nothing switches between them on its own. The device speaks JSON lines:
@@ -168,7 +170,6 @@ device -> host   {"kind": "loaded", "firmware": "..."}   {"kind": "error", "code
 - The `contingency-hil` program of [contingency-rs](https://github.com/OperantKit/contingency-rs) is a TCP server with a different message format, so `HilBridge` cannot drive it as is. Without `binary=` or `OPERANTKIT_HIL_BINARY`, `HilBridge` falls back to a built-in relative path that contingency-rs does not build.
 - With a real clock, `drive` waits with `time.sleep` and polls every 1 ms by default (`poll_interval`). Hardware timing has not been measured.
 - The macOS time-constraint thread (`experiment_io.realtime`) needs no administrator rights, but the kernel puts a thread that runs past its computation time back on the standard policy.
-- With a real clock, `drive` does not poll during reinforcer access. Responses a device sends during access are read when access ends, are given the session time of that moment, and count toward the schedule.
 - The virtual subjects are models. They show that the program delivers the schedule you wrote, not what an animal will do.
 
 ## Development

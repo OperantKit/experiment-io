@@ -69,10 +69,15 @@ def drive(
     Each iteration:
 
     1. If ``driver.is_reinforcing``, deliver the reinforcer matching the
-       triggering operandum, advance the clock by ``reinforcer_duration``
-       (deterministically for virtual clocks; via :func:`time.sleep` for
-       real wall-clocks), call any virtual-subject ``freeze_for_reinforcer``
-       hooks, then call :meth:`driver.end_reinforcement`.
+       triggering operandum and wait ``reinforcer_duration`` (advancing a
+       virtual clock deterministically, or :func:`time.sleep` for real
+       wall-clocks). Device operanda are polled every ``poll_interval``
+       during access and once more at its end; each sample is handed to
+       the driver at ``clock()`` (a reinforcing session records it without
+       counting it toward the schedule). With virtual subjects the clock
+       is advanced in one step and their ``freeze_for_reinforcer`` hooks
+       are called instead, since they do not respond during access. Then
+       call :meth:`driver.end_reinforcement`.
     2. Otherwise route any samples left over from the previous poll, or
        poll the operanda in order. Each
        :class:`~experiment_io.hw.ResponseSample` is routed through
@@ -138,6 +143,7 @@ def drive(
     is_concurrent_resolved = _resolve_concurrent(driver, operanda, is_concurrent)
     get_last_op = _resolve_last_op_getter(driver, last_reinforced_operandum)
     respond = _responder(driver, is_concurrent_resolved)
+    has_virtual = _has_virtual_subjects(operanda)
 
     try:
         session_start = clock()
@@ -152,8 +158,13 @@ def drive(
             if driver.is_reinforcing:
                 op_idx = get_last_op() or 0
                 reinforcers[op_idx].deliver(reinforcer_duration)
-                _advance(clock, reinforcer_duration)
-                _freeze_virtual_subjects(operanda, reinforcer_duration)
+                if has_virtual:
+                    _advance(clock, reinforcer_duration)
+                    _freeze_virtual_subjects(operanda, reinforcer_duration)
+                else:
+                    _read_during_access(
+                        operanda, respond, clock, on_response, reinforcer_duration, poll_interval
+                    )
                 driver.end_reinforcement(clock())
                 continue
 
@@ -265,6 +276,48 @@ def _route(
         respond(sample, now)
         if on_response is not None:
             on_response(sample, now)
+
+
+def _read_during_access(
+    operanda: Sequence[Operandum],
+    respond: Callable[[ResponseSample, float], None],
+    clock: Callable[[], float],
+    on_response: Callable[[ResponseSample, float], None] | None,
+    duration: float,
+    poll_interval: float,
+) -> None:
+    """Wait out reinforcer access while handing arriving samples to the driver.
+
+    The driver is reinforcing, so it records these responses without
+    counting them toward the schedule. Every operandum is polled once more
+    at the end of access so that nothing that arrived during access is
+    handed over after ``end_reinforcement``.
+    """
+    deadline = clock() + duration
+    while True:
+        for op in operanda:
+            for sample in op.poll():
+                now = clock()
+                respond(sample, now)
+                if on_response is not None:
+                    on_response(sample, now)
+        remaining = deadline - clock()
+        if remaining <= 0:
+            return
+        _advance(clock, min(poll_interval, remaining))
+
+
+def _has_virtual_subjects(operanda: Sequence[Operandum]) -> bool:
+    """Whether any operandum is driven by a virtual subject.
+
+    Virtual subjects do not respond during reinforcer access; their
+    timelines are shifted by ``freeze_for_reinforcer`` instead.
+    """
+    return any(
+        hasattr(op, "freeze_for_reinforcer")
+        or hasattr(getattr(op, "_parent", None), "freeze_for_reinforcer")
+        for op in operanda
+    )
 
 
 def _advance(clock: Callable[[], float], duration: float) -> None:
