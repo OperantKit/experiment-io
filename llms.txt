@@ -37,7 +37,7 @@ Session time is the host clock passed to `drive`: each response is given `clock(
 
 ## Docs
 
-- [README](https://github.com/OperantKit/experiment-io/blob/main/README.md): backends, 30-second example, why not to hand-roll a hardware loop, wire formats
+- [README](https://github.com/OperantKit/experiment-io/blob/main/README.md): backends, example, why not to hand-roll a hardware loop, wire formats
 - [AGENTS.md](https://github.com/OperantKit/experiment-io/blob/main/AGENTS.md): when to use this package and what not to do
 
 ## Related packages
