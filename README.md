@@ -20,15 +20,15 @@ pip install git+https://github.com/OperantKit/experiment-io
 pip install pyserial     # optional: only to open a real serial port
 ```
 
-The example below also needs a session, which comes from session-runner and the packages under it. Install them from GitHub together:
+The example below also needs a session, which comes from session-runner and the packages under it. Install them from GitHub together, without dependency resolution:
 
 ```bash
 # Until the PyPI release, install from GitHub together with its OperantKit dependencies.
-pip install git+https://github.com/OperantKit/contingency-dsl-py \
-            git+https://github.com/OperantKit/contingency-py \
-            git+https://github.com/OperantKit/experiment-core \
-            git+https://github.com/OperantKit/session-runner
+G=git+https://github.com/OperantKit
+pip install --no-deps $G/contingency-dsl-py $G/contingency-py $G/experiment-core $G/session-runner
 ```
+
+`--no-deps` is needed because the GitHub builds carry development version numbers that do not satisfy each other's version ranges, so plain `pip install` stops with `ResolutionImpossible`. For the same reason `pip check` reports these version mismatches; they do not affect the example below. No third-party packages are needed.
 
 ## Example
 
